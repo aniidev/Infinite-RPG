@@ -68,10 +68,22 @@ export default function GameClient() {
     };
   }, [refreshInventory]);
 
-  // Loosely couple battle power to what you own.
-  const playerPower = useMemo(() => {
-    const totalAttack = items.reduce((sum, it) => sum + it.stats.attack * it.quantity, 0);
-    return 10 + Math.floor(totalAttack / 8);
+  // Loosely couple battle stats to what you own: attack drives damage, defense
+  // drives block chance, luck drives crit chance.
+  const playerStats = useMemo(() => {
+    let attack = 0;
+    let defense = 0;
+    let luck = 0;
+    for (const it of items) {
+      attack += it.stats.attack * it.quantity;
+      defense += it.stats.defense * it.quantity;
+      luck += it.stats.luck * it.quantity;
+    }
+    return {
+      attack: 10 + Math.floor(attack / 8),
+      defense: 2 + Math.floor(defense / 8),
+      luck: 1 + Math.floor(luck / 6),
+    };
   }, [items]);
 
   const itemById = useMemo(() => {
@@ -147,7 +159,7 @@ export default function GameClient() {
       )}
 
       {tab === "battle" ? (
-        <BattleScreen playerId={playerId} playerPower={playerPower} onLoot={handleLoot} />
+        <BattleScreen playerId={playerId} playerStats={playerStats} onLoot={handleLoot} />
       ) : (
         <DndContext
           sensors={sensors}

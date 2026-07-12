@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import ItemCard from "./ItemCard";
 import BattleScreen from "./BattleScreen";
-import type { InventoryItem } from "@/game/types";
+import { MAX_INVENTORY_SLOTS, type InventoryItem } from "@/game/types";
 
 const PLAYER_KEY = "infinite-rpg-player-id";
 
@@ -26,8 +26,10 @@ type Tab = "forge" | "battle";
 
 export default function GameClient() {
   const [playerId, setPlayerId] = useState<string | null>(null);
+  const [playerLevel, setPlayerLevel] = useState(1);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [tab, setTab] = useState<Tab>("forge");
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   const [activeItem, setActiveItem] = useState<InventoryItem | null>(null);
   const [crafting, setCrafting] = useState(false);
@@ -36,7 +38,8 @@ export default function GameClient() {
   const [error, setError] = useState<string | null>(null);
 
   const sensors = useSensors(
-    // Small activation distance so plain clicks aren't swallowed by dragging.
+    // Small activation distance so plain clicks (item selection) aren't swallowed
+    // by dragging (crafting).
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
 
@@ -48,19 +51,34 @@ export default function GameClient() {
     }
   }, []);
 
-  // Bootstrap: reuse a locally-stored player id, or create one.
+  // Bootstrap: reuse a locally-stored player (and its saved level), or create one.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       let id = localStorage.getItem(PLAYER_KEY);
+      let level = 1;
+
+      if (id) {
+        const res = await fetch(`/api/player?playerId=${encodeURIComponent(id)}`);
+        if (res.ok) {
+          const data = await res.json();
+          level = data.player?.level ?? 1;
+        } else {
+          id = null; // stale/deleted player — fall through to create a new one
+        }
+      }
+
       if (!id) {
         const res = await fetch("/api/player", { method: "POST" });
         const data = await res.json();
         id = data.player.id as string;
+        level = data.player.level ?? 1;
         localStorage.setItem(PLAYER_KEY, id);
       }
+
       if (cancelled) return;
       setPlayerId(id);
+      setPlayerLevel(level);
       await refreshInventory(id);
     })().catch(() => setError("Could not start a game session."));
     return () => {
@@ -68,29 +86,14 @@ export default function GameClient() {
     };
   }, [refreshInventory]);
 
-  // Loosely couple battle stats to what you own: attack drives damage, defense
-  // drives block chance, luck drives crit chance.
-  const playerStats = useMemo(() => {
-    let attack = 0;
-    let defense = 0;
-    let luck = 0;
-    for (const it of items) {
-      attack += it.stats.attack * it.quantity;
-      defense += it.stats.defense * it.quantity;
-      luck += it.stats.luck * it.quantity;
-    }
-    return {
-      attack: 10 + Math.floor(attack / 8),
-      defense: 2 + Math.floor(defense / 8),
-      luck: 1 + Math.floor(luck / 6),
-    };
-  }, [items]);
-
   const itemById = useMemo(() => {
     const map = new Map<string, InventoryItem>();
     for (const it of items) map.set(it.id, it);
     return map;
   }, [items]);
+
+  // The item chosen to battle with (null if the selection is gone or unset).
+  const selectedItem = selectedItemId ? itemById.get(selectedItemId) ?? null : null;
 
   function handleDragStart(event: DragStartEvent) {
     const item = event.active.data.current?.item as InventoryItem | undefined;
@@ -103,7 +106,12 @@ export default function GameClient() {
     if (!over || !playerId) return;
     const aId = String(active.id);
     const bId = String(over.id);
-    if (aId === bId) return; // dropped on itself — ignore
+    if (aId === bId) {
+      // Dropping a stack onto itself merges two of the same item — only allowed
+      // when you actually have two copies.
+      const stack = itemById.get(aId);
+      if (!stack || stack.quantity < 2) return;
+    }
     await doCraft(playerId, aId, bId);
   }
 
@@ -137,19 +145,55 @@ export default function GameClient() {
     [playerId, refreshInventory]
   );
 
+  async function handleRestart() {
+    if (!playerId) return;
+    const ok = window.confirm(
+      "Restart your game? You'll lose all items except the Rusty Sword and return to level 1."
+    );
+    if (!ok) return;
+
+    setError(null);
+    try {
+      const res = await fetch("/api/player/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Restart failed.");
+      }
+      const data = await res.json();
+      setPlayerLevel(data.player?.level ?? 1);
+      setSelectedItemId(null);
+      setTab("forge");
+      await refreshInventory(playerId);
+      setToast("Game restarted — only the Rusty Sword remains.");
+      window.setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Restart failed.");
+    }
+  }
+
   if (!playerId) {
     return <div className="text-sm text-slate-400">Starting your adventure…</div>;
   }
 
   return (
     <div>
-      <nav className="mb-4 flex gap-2">
+      <nav className="mb-4 flex items-center gap-2">
         <TabButton active={tab === "forge"} onClick={() => setTab("forge")}>
           Forge &amp; Inventory ({items.length})
         </TabButton>
         <TabButton active={tab === "battle"} onClick={() => setTab("battle")}>
           Battle
         </TabButton>
+        <button
+          onClick={handleRestart}
+          className="ml-auto rounded-lg border border-rose-800 bg-rose-950/40 px-3 py-1.5 text-sm font-medium text-rose-200 transition hover:bg-rose-900/50"
+        >
+          Restart game
+        </button>
       </nav>
 
       {error && (
@@ -159,27 +203,74 @@ export default function GameClient() {
       )}
 
       {tab === "battle" ? (
-        <BattleScreen playerId={playerId} playerStats={playerStats} onLoot={handleLoot} />
+        selectedItem ? (
+          <BattleScreen
+            key={selectedItem.id}
+            playerId={playerId}
+            weapon={selectedItem}
+            initialLevel={playerLevel}
+            onLoot={handleLoot}
+            onProgress={setPlayerLevel}
+          />
+        ) : (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-400">
+            Choose a weapon first: open{" "}
+            <span className="font-medium text-slate-200">Forge &amp; Inventory</span> and click an
+            item to select it, then come back to battle.
+          </div>
+        )
       ) : (
         <DndContext
           sensors={sensors}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <p className="mb-3 text-sm text-slate-400">
-            Drag one item card onto another to combine them.
-          </p>
-          {items.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No items yet — head to Battle to earn some loot.
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <p className="text-sm text-slate-400">
+              <span className="text-slate-200">Click</span> a card to select your battle weapon.{" "}
+              <span className="text-slate-200">Drag</span> one card onto another — or a ×2+ stack
+              onto itself — to combine them.
             </p>
-          ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {items.map((item) => (
-                <ItemCard key={item.id} item={item} />
-              ))}
-            </div>
+            <span
+              className={[
+                "shrink-0 rounded-md px-2 py-1 text-xs font-medium",
+                items.length >= MAX_INVENTORY_SLOTS
+                  ? "bg-rose-950/60 text-rose-300"
+                  : "bg-slate-800 text-slate-300",
+              ].join(" ")}
+            >
+              Slots {items.length}/{MAX_INVENTORY_SLOTS}
+            </span>
+          </div>
+
+          {items.length === 0 && (
+            <p className="mb-3 text-sm text-slate-500">
+              Only empty slots — head to Battle to earn some loot.
+            </p>
           )}
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+            {items.map((item) => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                selected={item.id === selectedItemId}
+                onSelect={() =>
+                  setSelectedItemId((prev) => (prev === item.id ? null : item.id))
+                }
+              />
+            ))}
+            {Array.from({ length: Math.max(0, MAX_INVENTORY_SLOTS - items.length) }).map(
+              (_, i) => (
+                <div
+                  key={`empty-${i}`}
+                  className="grid min-h-[104px] place-items-center rounded-xl border border-dashed border-slate-700/60 text-xs text-slate-600"
+                >
+                  empty
+                </div>
+              )
+            )}
+          </div>
 
           <DragOverlay>
             {activeItem ? <ItemCard item={activeItem} overlay /> : null}
@@ -229,8 +320,7 @@ function CraftingOverlay({
   activeItem: InventoryItem | null;
   itemById: Map<string, InventoryItem>;
 }) {
-  // `activeItem` is cleared on drop, so this is mostly a spinner; still show a
-  // hint if we happen to have it.
+  // `activeItem` is cleared on drop, so this is mostly a spinner.
   void activeItem;
   void itemById;
   return (

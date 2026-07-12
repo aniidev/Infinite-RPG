@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSql } from "@/lib/db";
+import { grantStarterItem } from "@/lib/inventory";
 
 export const runtime = "nodejs";
 
-// Create an anonymous player (Milestone 1 has no auth). New players are granted
-// one of each base item so they can start crafting immediately.
+// Create an anonymous player (Milestone 1 has no auth). New players start with
+// ONLY a Rusty Sword — everything else must be earned by battling.
 export async function POST(req: Request) {
   const sql = getSql();
 
@@ -20,17 +21,26 @@ export async function POST(req: Request) {
 
   const [player] = await sql`
     insert into players (name) values (${name})
-    returning id, name, created_at
+    returning id, name, level
   `;
 
-  const bases = await sql`select id from items where depth = 0`;
-  for (const base of bases) {
-    await sql`
-      insert into player_inventory (player_id, item_id, quantity)
-      values (${player.id}, ${base.id}, 1)
-      on conflict (player_id, item_id) do nothing
-    `;
+  await grantStarterItem(sql, player.id);
+
+  return NextResponse.json({ player });
+}
+
+// Fetch a player (used on load to resume their progress level).
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const playerId = searchParams.get("playerId");
+  if (!playerId) {
+    return NextResponse.json({ error: "Missing playerId." }, { status: 400 });
   }
 
+  const sql = getSql();
+  const [player] = await sql`select id, name, level from players where id = ${playerId}`;
+  if (!player) {
+    return NextResponse.json({ error: "Player not found." }, { status: 404 });
+  }
   return NextResponse.json({ player });
 }

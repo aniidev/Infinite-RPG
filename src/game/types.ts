@@ -3,6 +3,11 @@
 export const ELEMENTS = ["none", "fire", "ice"] as const;
 export const KINDS = ["weapon", "armor", "element", "misc"] as const;
 
+// Inventory capacity. A "slot" is one distinct item stack (a stack can hold
+// multiple copies via quantity). New loot that would create a new stack is
+// dropped when all slots are full.
+export const MAX_INVENTORY_SLOTS = 16;
+
 export type Kind = (typeof KINDS)[number];
 
 export interface Stats {

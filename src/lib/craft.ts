@@ -2,8 +2,8 @@ import { getSql, type PostgresClient } from "./db";
 import { withLock } from "./lock";
 import { moderateName } from "./moderation";
 import { generateCraft } from "./groq";
-import { addToInventory } from "./inventory";
-import { KINDS, type Item } from "@/game/types";
+import { insertUniqueVariant, type VariantStore } from "./variants";
+import { KINDS, MAX_INVENTORY_SLOTS, type Item } from "@/game/types";
 
 // Typed error so the route can map to an HTTP status.
 export class CraftError extends Error {
@@ -77,13 +77,60 @@ export async function craft(
   const key = `${minId}:${maxId}`;
 
   // 2 + 3. Recipe resolution is player-independent, so the single-flight lock
-  // lets many concurrent identical crafts share one LLM call / insert. Each
-  // waiter still adds the resulting item to its own inventory afterward.
+  // lets many concurrent identical crafts share one LLM call / insert.
   const resolved = await withLock(key, () =>
     resolveRecipe(key, minId, maxId, itemA, itemB, playerId)
   );
 
-  await addToInventory(sql, playerId, resolved.item.id);
+  // Merging CONSUMES the two inputs and leaves only the result. Done atomically
+  // so a failure can't drop an input or hand out a free craft.
+  await sql.begin(async (tx) => {
+    if (aId === bId) {
+      await tx`
+        update player_inventory set quantity = quantity - 2
+        where player_id = ${playerId} and item_id = ${aId}
+      `;
+    } else {
+      await tx`
+        update player_inventory set quantity = quantity - 1
+        where player_id = ${playerId} and item_id = ${aId}
+      `;
+      await tx`
+        update player_inventory set quantity = quantity - 1
+        where player_id = ${playerId} and item_id = ${bId}
+      `;
+    }
+
+    // Remove fully-consumed stacks BEFORE adding the result, so a result that
+    // happens to equal an input (e.g. fire + fire -> fire) is re-added correctly.
+    await tx`
+      delete from player_inventory
+      where player_id = ${playerId} and quantity <= 0
+    `;
+
+    // Enforce the slot cap: a result that opens a NEW stack must fit. (Merges
+    // usually free slots, so this only trips when both inputs were multi-stacks.)
+    const [alreadyOwned] = await tx`
+      select 1 from player_inventory
+      where player_id = ${playerId} and item_id = ${resolved.item.id}
+    `;
+    if (!alreadyOwned) {
+      const [countRow] = await tx`
+        select count(*)::int as c from player_inventory where player_id = ${playerId}
+      `;
+      if (Number(countRow.c) >= MAX_INVENTORY_SLOTS) {
+        throw new CraftError("Your inventory is full — make room before crafting.", 409);
+      }
+    }
+
+    await tx`
+      insert into player_inventory (player_id, item_id, quantity)
+      values (${playerId}, ${resolved.item.id}, 1)
+      on conflict (player_id, item_id)
+      do update set quantity = player_inventory.quantity + 1
+    `;
+  });
+
   return resolved;
 }
 
@@ -119,31 +166,46 @@ async function resolveRecipe(
   }
 
   const depth = Math.max(itemA.depth, itemB.depth) + 1;
-  const kind = normalizeKind(gen.kind);
+  const normGen = { ...gen, kind: normalizeKind(gen.kind) };
 
-  // 3d. Insert the item, then upsert the recipe. If a concurrent request (on
-  // another instance) already inserted this recipe, the ON CONFLICT no-ops and
-  // we adopt the winner's item, discarding our orphan. First write wins.
+  // 3d. Insert the item as a monotonic name variant, then upsert the recipe. If
+  // a concurrent request (on another instance) already inserted this recipe, the
+  // ON CONFLICT no-ops and we adopt the winner's item, discarding our orphan.
+  // First write wins.
   return await sql.begin(async (tx) => {
-    const [inserted] = await tx`
-      insert into items (name, glyph, element, kind, stats, depth, first_discovered_by)
-      values (${gen.name}, ${gen.glyph}, ${gen.element}, ${kind}::item_kind, ${tx.json(
-        gen.stats as unknown as Record<string, number>
-      )}, ${depth}, ${playerId})
-      returning id, name, glyph, element, kind, stats, depth
-    `;
+    // A tx-backed store for insertUniqueVariant. Each insert runs in its own
+    // SAVEPOINT so a unique violation rolls back only that attempt (a raw failing
+    // INSERT would abort the whole transaction), letting the retry loop continue.
+    const store: VariantStore = {
+      async insertVariant(v) {
+        const rows = (await tx.savepoint(
+          (sp) => sp`
+            insert into items
+              (name, name_key, base_key, glyph, element, kind, stats, power, depth, first_discovered_by)
+            values (${v.name}, ${v.nameKey}, ${v.baseKey}, ${v.glyph}, ${v.element},
+                    ${v.kind}::item_kind, ${sp.json(
+                      v.stats as unknown as Record<string, number>
+                    )}, ${v.power}, ${v.depth}, ${v.discoveredBy})
+            returning id, name, glyph, element, kind, stats, depth
+          `
+        )) as unknown as Item[];
+        return rows[0];
+      },
+    };
+
+    const item = await insertUniqueVariant(store, normGen, depth, playerId);
 
     const [recipeRow] = await tx`
       insert into recipes (key, input_a_id, input_b_id, output_item_id)
-      values (${key}, ${minId}, ${maxId}, ${inserted.id})
+      values (${key}, ${minId}, ${maxId}, ${item.id})
       on conflict (key) do nothing
       returning key
     `;
 
     if (!recipeRow) {
-      // Lost the race: adopt the existing recipe's item, drop our orphan.
+      // Lost the race: adopt the existing recipe's item, drop our orphan variant.
       const [existing] = await tx`select output_item_id from recipes where key = ${key}`;
-      await tx`delete from items where id = ${inserted.id}`;
+      await tx`delete from items where id = ${item.id}`;
       const [winner] = await tx`
         select id, name, glyph, element, kind, stats, depth
         from items where id = ${existing.output_item_id}
@@ -151,6 +213,6 @@ async function resolveRecipe(
       return { item: winner as Item, discovered: false, cached: false };
     }
 
-    return { item: inserted as Item, discovered: true, cached: false };
+    return { item, discovered: true, cached: false };
   });
 }

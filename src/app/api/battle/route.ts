@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSql } from "@/lib/db";
 import { addToInventory } from "@/lib/inventory";
 import { rollLoot } from "@/game/loot/table";
-import type { InventoryItem } from "@/game/types";
+import { MAX_INVENTORY_SLOTS, type InventoryItem, type Item } from "@/game/types";
 
 export const runtime = "nodejs";
 
@@ -28,13 +28,43 @@ export async function POST(req: Request) {
   const sql = getSql();
 
   const drops = await rollLoot(sql, enemyLevel);
+
+  // Respect the slot cap: drops that land on an existing stack always fit, but a
+  // drop that would open a NEW stack is lost when the inventory is full.
+  const existingRows = await sql`
+    select item_id from player_inventory where player_id = ${playerId}
+  `;
+  const owned = new Set<string>(existingRows.map((r) => r.item_id as string));
+  let stacks = owned.size;
+
+  const added: Item[] = [];
+  let lost = 0;
   for (const item of drops) {
-    await addToInventory(sql, playerId, item.id);
+    if (owned.has(item.id)) {
+      await addToInventory(sql, playerId, item.id);
+      added.push(item);
+    } else if (stacks < MAX_INVENTORY_SLOTS) {
+      await addToInventory(sql, playerId, item.id);
+      owned.add(item.id);
+      stacks += 1;
+      added.push(item);
+    } else {
+      lost += 1;
+    }
   }
 
-  // Aggregate duplicate drops into { ...item, quantity }.
+  // Persist progression: the player has cleared this level, so next time they
+  // resume at the following one. Never moves backward.
+  const nextLevel = enemyLevel + 1;
+  const [progressed] = await sql`
+    update players set level = greatest(level, ${nextLevel})
+    where id = ${playerId}
+    returning level
+  `;
+
+  // Aggregate the added drops into { ...item, quantity }.
   const byId = new Map<string, InventoryItem>();
-  for (const item of drops) {
+  for (const item of added) {
     const existing = byId.get(item.id);
     if (existing) {
       existing.quantity += 1;
@@ -43,5 +73,9 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ loot: Array.from(byId.values()) });
+  return NextResponse.json({
+    loot: Array.from(byId.values()),
+    level: progressed?.level ?? nextLevel,
+    lost,
+  });
 }

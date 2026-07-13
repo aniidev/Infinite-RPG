@@ -9,6 +9,7 @@
     "lint": "next lint",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "db:reset-crafted": "node --env-file-if-exists=.env.local scripts/reset-crafted.mjs",
+    "db:reset-db": "node --env-file-if-exists=.env.local scripts/reset-db.mjs",
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {

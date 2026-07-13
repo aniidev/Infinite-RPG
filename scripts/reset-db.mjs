@@ -1,0 +1,104 @@
+// FULL DB RESET — wipes everything (players, items, recipes, inventories) and
+// re-seeds the world from scratch: base items, the hardcoded crafted items, and
+// the hardcoded recipes. Use when you want a clean, deterministic starting world.
+//
+// Run with: npm run db:reset-db
+// (Requires migrations to be applied first — needs items.min_level etc.)
+import postgres from "postgres";
+
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error("DATABASE_URL is not set. Add it to .env.local.");
+  process.exit(1);
+}
+
+const sql = postgres(connectionString, { prepare: false, max: 1 });
+
+const normalize = (s) => s.trim().toLowerCase().replace(/\s+/g, " ");
+const powerOf = (st) => st.health + st.attack + st.defense + st.luck;
+
+// Base (depth 0) items — the ones that drop from battle. `minLevel` gates loot:
+// Axe only from enemy level 3, Hammer only from level 5.
+const baseItems = [
+  { name: "Rusty Sword",   glyph: "🗡️", element: "none",  kind: "weapon",  stats: { health: 0, attack: 6, defense: 1, luck: 0 }, minLevel: 1 },
+  { name: "Wooden Shield", glyph: "🛡️", element: "none",  kind: "armor",   stats: { health: 8, attack: 0, defense: 6, luck: 0 }, minLevel: 1 },
+  { name: "Fire Shard",    glyph: "🔥", element: "fire",  kind: "element", stats: { health: 0, attack: 4, defense: 0, luck: 2 }, minLevel: 1 },
+  { name: "Ice Shard",     glyph: "❄️", element: "ice",   kind: "element", stats: { health: 2, attack: 3, defense: 2, luck: 1 }, minLevel: 1 },
+  { name: "Grass",         glyph: "🌿", element: "grass", kind: "misc",    stats: { health: 3, attack: 1, defense: 2, luck: 2 }, minLevel: 1 },
+  { name: "Axe",           glyph: "🪓", element: "none",  kind: "weapon",  stats: { health: 0, attack: 9, defense: 1, luck: 0 }, minLevel: 3 },
+  { name: "Hammer",        glyph: "🔨", element: "none",  kind: "weapon",  stats: { health: 2, attack: 11, defense: 2, luck: 0 }, minLevel: 5 },
+];
+
+// Hardcoded craft results (depth 1). Seeded so the recipes below can point at
+// them without ever calling the LLM.
+const craftedItems = [
+  { name: "Water",       glyph: "💧", element: "water", kind: "element", stats: { health: 6, attack: 3, defense: 5, luck: 2 } },
+  { name: "Fire Sword",  glyph: "⚔️", element: "fire",  kind: "weapon",  stats: { health: 0, attack: 12, defense: 1, luck: 2 } },
+  { name: "Ice Sword",   glyph: "🗡️", element: "ice",   kind: "weapon",  stats: { health: 2, attack: 10, defense: 2, luck: 3 } },
+  { name: "Fire Shield", glyph: "🛡️", element: "fire",  kind: "armor",   stats: { health: 8, attack: 3, defense: 7, luck: 2 } },
+  { name: "Ice Shield",  glyph: "🛡️", element: "ice",   kind: "armor",   stats: { health: 10, attack: 2, defense: 8, luck: 1 } },
+];
+
+// [inputA, inputB, output]
+const recipes = [
+  ["Fire Shard", "Ice Shard", "Water"],
+  ["Fire Shard", "Rusty Sword", "Fire Sword"],
+  ["Ice Shard", "Rusty Sword", "Ice Sword"],
+  ["Fire Shard", "Wooden Shield", "Fire Shield"],
+  ["Ice Shard", "Wooden Shield", "Ice Shield"],
+];
+
+async function insertItem(it, depth) {
+  const nameKey = normalize(it.name);
+  const [row] = await sql`
+    insert into items (name, name_key, base_key, glyph, element, kind, stats, power, depth, min_level)
+    values (${it.name}, ${nameKey}, ${nameKey}, ${it.glyph}, ${it.element}, ${it.kind}::item_kind,
+            ${sql.json(it.stats)}, ${powerOf(it.stats)}, ${depth}, ${it.minLevel ?? 1})
+    returning id
+  `;
+  return row.id;
+}
+
+try {
+  await sql`truncate table players, items, recipes, player_inventory cascade`;
+
+  const ids = new Map();
+  for (const it of baseItems) ids.set(it.name, await insertItem(it, 0));
+  for (const it of craftedItems) ids.set(it.name, await insertItem(it, 1));
+
+  for (const [aName, bName, outName] of recipes) {
+    const aId = ids.get(aName);
+    const bId = ids.get(bName);
+    const outId = ids.get(outName);
+    // Same normalization /api/craft uses: sort the two ids, key = "min:max".
+    const [min, max] = aId < bId ? [aId, bId] : [bId, aId];
+    const key = `${min}:${max}`;
+    await sql`
+      insert into recipes (key, input_a_id, input_b_id, output_item_id)
+      values (${key}, ${min}, ${max}, ${outId})
+      on conflict (key) do nothing
+    `;
+  }
+
+  const items = await sql`select name, depth, power, min_level from items order by depth, min_level, name`;
+  console.log(`Seeded ${items.length} items:`);
+  for (const r of items) {
+    console.log(`  depth ${r.depth}  lv${r.min_level}+  power ${r.power}  ${r.name}`);
+  }
+
+  const recs = await sql`
+    select a.name as a, b.name as b, o.name as o
+    from recipes r
+    join items a on a.id = r.input_a_id
+    join items b on b.id = r.input_b_id
+    join items o on o.id = r.output_item_id
+    order by o.name
+  `;
+  console.log(`\nHardcoded recipes (${recs.length}):`);
+  for (const r of recs) console.log(`  ${r.a} + ${r.b} = ${r.o}`);
+} catch (err) {
+  console.error("Reset failed:", err);
+  process.exitCode = 1;
+} finally {
+  await sql.end();
+}

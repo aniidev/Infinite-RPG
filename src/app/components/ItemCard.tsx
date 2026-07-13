@@ -7,6 +7,8 @@ const ELEMENT_COLORS: Record<string, string> = {
   none: "text-slate-400",
   fire: "text-orange-400",
   ice: "text-cyan-300",
+  water: "text-blue-300",
+  grass: "text-green-400",
 };
 
 function elementColor(element: string): string {

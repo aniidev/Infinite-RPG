@@ -11,8 +11,12 @@ export async function rollLoot(
   sql: PostgresClient,
   level: number
 ): Promise<Item[]> {
+  // Only base items whose min_level has been reached can drop — this is how
+  // Axe (lv 3+) and Hammer (lv 5+) are gated to later levels.
   const pool = (await sql`
-    select id, name, glyph, element, kind, stats, depth from items where depth = 0
+    select id, name, glyph, element, kind, stats, depth
+    from items
+    where depth = 0 and min_level <= ${level}
   `) as unknown as Item[];
 
   if (pool.length === 0) return [];

@@ -2,7 +2,8 @@ import { getSql, type PostgresClient } from "./db";
 import { withLock } from "./lock";
 import { moderateName } from "./moderation";
 import { generateCraft } from "./groq";
-import { insertUniqueVariant, type VariantStore } from "./variants";
+import { insertTierVariant, type VariantStore } from "./variants";
+import { combinePower, shapeFromStats } from "@/game/tiers";
 import { KINDS, MAX_INVENTORY_SLOTS, type Item } from "@/game/types";
 
 // Typed error so the route can map to an HTTP status.
@@ -25,11 +26,15 @@ function normalizeKind(kind: string): string {
   return (KINDS as readonly string[]).includes(kind) ? kind : "misc";
 }
 
-async function getItem(sql: PostgresClient, id: string): Promise<Item | null> {
+// Item plus the fields the combine formula needs (read fresh from the DB).
+type CraftItem = Item & { tier: number; power: number };
+
+async function getItem(sql: PostgresClient, id: string): Promise<CraftItem | null> {
   const [row] = await sql`
-    select id, name, glyph, element, kind, stats, depth from items where id = ${id}
+    select id, name, glyph, bg_glyph as "bgGlyph", element, kind, stats, depth, tier, power
+    from items where id = ${id}
   `;
-  return row ? (row as Item) : null;
+  return row ? (row as CraftItem) : null;
 }
 
 /**
@@ -138,8 +143,8 @@ async function resolveRecipe(
   key: string,
   minId: string,
   maxId: string,
-  itemA: Item,
-  itemB: Item,
+  itemA: CraftItem,
+  itemB: CraftItem,
   playerId: string
 ): Promise<CraftResult> {
   const sql = getSql();
@@ -151,7 +156,7 @@ async function resolveRecipe(
     if (item) return { item, discovered: false, cached: true };
   }
 
-  // 3b. Miss -> call the LLM.
+  // 3b. Miss -> ask the LLM for identity + shape ONLY (never power).
   let gen = await generateCraft(itemA, itemB);
 
   // 3c. Moderation — nothing offensive can ever enter the global cache.
@@ -168,32 +173,58 @@ async function resolveRecipe(
   const depth = Math.max(itemA.depth, itemB.depth) + 1;
   const normGen = { ...gen, kind: normalizeKind(gen.kind) };
 
-  // 3d. Insert the item as a monotonic name variant, then upsert the recipe. If
-  // a concurrent request (on another instance) already inserted this recipe, the
-  // ON CONFLICT no-ops and we adopt the winner's item, discarding our orphan.
-  // First write wins.
+  // Power is computed locally from the tiers — capped by the tier ceiling.
+  const { outTier, ceiling, target } = combinePower(
+    itemA.tier,
+    itemA.power,
+    itemB.tier,
+    itemB.power
+  );
+
+  // Distribute that power across the PARENTS' combined stat profile so the
+  // result is never weaker than both parents in any stat.
+  const shape = shapeFromStats(itemA.stats, itemB.stats);
+
+  // 3d. Mint (or reuse) the tier-bounded variant, then upsert the recipe. If a
+  // concurrent request already inserted this recipe, the ON CONFLICT no-ops and
+  // we adopt the winner's item. First write wins.
   return await sql.begin(async (tx) => {
-    // A tx-backed store for insertUniqueVariant. Each insert runs in its own
-    // SAVEPOINT so a unique violation rolls back only that attempt (a raw failing
-    // INSERT would abort the whole transaction), letting the retry loop continue.
+    // Tx-backed store. insertVariant runs in its own SAVEPOINT so a name-clash
+    // unique violation rolls back only that attempt, letting the loop continue.
     const store: VariantStore = {
+      async topVariant(baseKey) {
+        const [row] = await tx`
+          select id, name, glyph, bg_glyph as "bgGlyph", element, kind, stats, depth, power
+          from items where base_key = ${baseKey}
+          order by power desc limit 1
+        `;
+        if (!row) return null;
+        return { id: row.id, power: Number(row.power), item: row as Item };
+      },
       async insertVariant(v) {
         const rows = (await tx.savepoint(
           (sp) => sp`
             insert into items
-              (name, name_key, base_key, glyph, element, kind, stats, power, depth, first_discovered_by)
-            values (${v.name}, ${v.nameKey}, ${v.baseKey}, ${v.glyph}, ${v.element},
-                    ${v.kind}::item_kind, ${sp.json(
+              (name, name_key, base_key, glyph, bg_glyph, element, kind, stats, power, tier, depth, first_discovered_by)
+            values (${v.name}, ${v.nameKey}, ${v.baseKey}, ${v.glyph}, ${v.bgGlyph || null},
+                    ${v.element}, ${v.kind}::item_kind, ${sp.json(
                       v.stats as unknown as Record<string, number>
-                    )}, ${v.power}, ${v.depth}, ${v.discoveredBy})
-            returning id, name, glyph, element, kind, stats, depth
+                    )}, ${v.power}, ${v.tier}, ${v.depth}, ${v.discoveredBy})
+            returning id, name, glyph, bg_glyph as "bgGlyph", element, kind, stats, depth
           `
         )) as unknown as Item[];
         return rows[0];
       },
     };
 
-    const item = await insertUniqueVariant(store, normGen, depth, playerId);
+    const { item, minted } = await insertTierVariant(store, normGen, {
+      shape,
+      outTier,
+      ceiling,
+      target,
+      depth,
+      discoveredBy: playerId,
+    });
 
     const [recipeRow] = await tx`
       insert into recipes (key, input_a_id, input_b_id, output_item_id)
@@ -203,16 +234,19 @@ async function resolveRecipe(
     `;
 
     if (!recipeRow) {
-      // Lost the race: adopt the existing recipe's item, drop our orphan variant.
+      // Lost the race: adopt the winner's item. Only delete OUR row if we minted
+      // a new one — a reused existing variant must never be deleted.
       const [existing] = await tx`select output_item_id from recipes where key = ${key}`;
-      await tx`delete from items where id = ${item.id}`;
+      if (minted) {
+        await tx`delete from items where id = ${item.id}`;
+      }
       const [winner] = await tx`
-        select id, name, glyph, element, kind, stats, depth
+        select id, name, glyph, bg_glyph as "bgGlyph", element, kind, stats, depth
         from items where id = ${existing.output_item_id}
       `;
       return { item: winner as Item, discovered: false, cached: false };
     }
 
-    return { item, discovered: true, cached: false };
+    return { item, discovered: minted, cached: false };
   });
 }

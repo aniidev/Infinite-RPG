@@ -1,10 +1,9 @@
 import OpenAI from "openai";
-import type { CraftGenResult, Item, Stats } from "@/game/types";
+import type { CraftGenResult, Item } from "@/game/types";
 
 // Provider config. Groq is OpenAI-compatible, so we use the openai SDK pointed
-// at Groq's base URL. To swap providers later (e.g. back to Anthropic, or
-// OpenAI, or a local model), only this file changes — everyone else calls
-// generateCraft(itemA, itemB).
+// at Groq's base URL. To swap providers later, only this file changes — everyone
+// else calls generateCraft(itemA, itemB).
 const BASE_URL = "https://api.groq.com/openai/v1";
 const MODEL = "llama-3.3-70b-versatile";
 
@@ -20,35 +19,42 @@ function getClient(): OpenAI {
   return client;
 }
 
+// The LLM decides IDENTITY and FLAVOR only — never power, stats, or even the
+// stat distribution. Stats are derived from the parents' combined profile, so a
+// combine can never be weaker than both parents.
 const SYSTEM_PROMPT = `You are the crafting engine for a fantasy RPG with infinite crafting.
 Given two parent items, invent the SINGLE new item that results from combining them.
 
 Respond with ONLY one valid JSON object and no other text, in exactly this shape:
-{"name": string, "glyph": string, "element": string, "kind": string, "stats": {"health": number, "attack": number, "defense": number, "luck": number}}
+{"name": string, "glyph": string, "background": string, "element": string, "kind": string}
 
 Rules:
 - "name": short (1-3 words), evocative, and family-friendly. Never offensive.
-- "glyph": a single emoji that represents the item.
-- "element": derive it sensibly from the parents (e.g. fire + ice -> "steam" or "water"; sword + fire -> "fire"). Lowercase. Use "none" if no element fits.
+- "glyph": a SINGLE emoji for the item itself (shown in front) — e.g. a sword ⚔️.
+- "background": a SINGLE different emoji shown large and faded BEHIND the item to convey its element or vibe — e.g. 🔥 behind a fire sword, ❄️ behind an ice blade, 🌊 behind a water staff. Pick the most fitting emoji; it should differ from "glyph". Use "" only if truly nothing fits.
+- "element": derive it sensibly from the parents (e.g. fire + ice -> "steam" or "water"). Lowercase. Use "none" if no element fits.
 - "kind": exactly one of "weapon", "armor", "element", "misc".
-- "stats": integers. The result should generally be STRONGER than its parents (roughly the sum of the parents' stats plus a small bonus), so deeper crafts trend more powerful. Keep every stat between 0 and 999.
+Do NOT output stats or power — only the identity above.
 Return only the JSON object.`;
 
 function describeItem(item: Item): string {
-  return `name="${item.name}", element="${item.element}", kind="${item.kind}", stats=${JSON.stringify(
-    item.stats
-  )}`;
+  // Identity only — deliberately omit stats/power so the model doesn't anchor
+  // on the parents' numbers (stats are computed locally, not by the LLM).
+  return `name="${item.name}", element="${item.element}", kind="${item.kind}"`;
 }
 
-function clampStat(value: unknown): number {
-  const n = Math.round(Number(value));
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(999, n));
+// Accept only a short, letter-free string (an emoji / emoji sequence), else "".
+// Keeps stray words like "fire" out of the glyph fields.
+function cleanEmoji(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const t = value.trim();
+  if (!t || t.length > 16 || /[a-zA-Z0-9]/.test(t)) return "";
+  return t;
 }
 
-// Defensive parse: Llama sometimes returns extra prose or slightly-off shapes
-// even in JSON mode, so we validate/coerce and return null on anything unusable
-// (the caller retries once, then errors).
+// Defensive parse: Llama occasionally returns extra prose even in JSON mode, so
+// we validate/coerce and return null on anything unusable (the caller retries
+// once, then errors).
 function parseCraft(raw: string): CraftGenResult | null {
   let obj: unknown;
   try {
@@ -62,10 +68,12 @@ function parseCraft(raw: string): CraftGenResult | null {
   const name = typeof record.name === "string" ? record.name.trim() : "";
   if (!name) return null;
 
-  const glyph =
-    typeof record.glyph === "string" && record.glyph.trim()
-      ? record.glyph.trim()
-      : "✨";
+  const glyph = cleanEmoji(record.glyph) || "✨";
+  // Background is optional; drop it if it's missing, invalid, or identical to
+  // the foreground (nothing to layer).
+  let bgGlyph = cleanEmoji(record.background);
+  if (bgGlyph === glyph) bgGlyph = "";
+
   const element =
     typeof record.element === "string" && record.element.trim()
       ? record.element.trim().toLowerCase()
@@ -75,20 +83,13 @@ function parseCraft(raw: string): CraftGenResult | null {
       ? record.kind.trim().toLowerCase()
       : "misc";
 
-  const rawStats = (record.stats ?? {}) as Record<string, unknown>;
-  const stats: Stats = {
-    health: clampStat(rawStats.health),
-    attack: clampStat(rawStats.attack),
-    defense: clampStat(rawStats.defense),
-    luck: clampStat(rawStats.luck),
-  };
-
-  return { name, glyph, element, kind, stats };
+  return { name, glyph, bgGlyph, element, kind };
 }
 
 /**
- * Generate the result of combining two items. Provider-agnostic contract:
- * callers depend only on this function and its return type.
+ * Generate the IDENTITY of combining two items. Provider-agnostic contract:
+ * callers depend only on this function and its return type. Power AND stat
+ * distribution are computed locally — never by the LLM.
  */
 export async function generateCraft(
   itemA: Item,

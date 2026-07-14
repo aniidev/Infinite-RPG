@@ -1,4 +1,9 @@
-import type { CraftGenResult, Item, Stats } from "@/game/types";
+import { statsFromShape } from "@/game/tiers";
+import type { CraftGenResult, Item, Stats, StatShape } from "@/game/types";
+
+// Each new variant of a base name is at least this much stronger than the
+// current strongest — bounded by the tier ceiling.
+export const STEP = 15;
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -9,20 +14,18 @@ export function normalize(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-// Matches a trailing roman-numeral token built only from I/V/X/L (covers 1..49,
-// which is far more than enough). Excluding M/C/D avoids false positives on real
-// words like "Mix" (M...) that happen to look roman-ish.
+// Matches a trailing roman-numeral token built only from I/V/X/L (covers 1..49).
+// Excluding M/C/D avoids false positives on real words like "Mix".
 const TRAILING_ROMAN = /^(?=[ivxl])(xl|x{0,3})(ix|iv|v?i{0,3})$/i;
 
 /**
  * Remove a trailing roman-numeral token so a base name is always numeral-free,
- * even if the LLM appended one. Never empties the name: a single-word input, or
- * a strip that would leave nothing, is returned unchanged.
+ * even if the LLM appended one. Never empties the name.
  */
 export function stripNumeral(s: string): string {
   const trimmed = s.trim();
   const lastSpace = trimmed.lastIndexOf(" ");
-  if (lastSpace === -1) return trimmed; // single word: nothing to strip
+  if (lastSpace === -1) return trimmed;
   const last = trimmed.slice(lastSpace + 1);
   if (TRAILING_ROMAN.test(last)) {
     const base = trimmed.slice(0, lastSpace).trim();
@@ -40,11 +43,7 @@ const ROMAN_TABLE: ReadonlyArray<readonly [number, string]> = [
   [1, "I"],
 ];
 
-/**
- * Ordinal numeral for the nth variant of a name. n=1 is the bare name (empty
- * suffix), n=2 -> "II", n=3 -> "III", etc. The numeral is purely a uniqueness
- * disambiguator — it does NOT imply anything about power.
- */
+/** Ordinal numeral for the nth variant. n=1 -> "" (bare), n=2 -> "II", etc. */
 export function roman(n: number): string {
   if (n <= 1) return "";
   let num = n;
@@ -58,7 +57,7 @@ export function roman(n: number): string {
   return out;
 }
 
-/** Total power = sum of the four stats (cached for convenience/queries). */
+/** Total power = sum of the four stats. */
 export function power(stats: Stats): number {
   return stats.health + stats.attack + stats.defense + stats.luck;
 }
@@ -74,79 +73,122 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Unique variant insertion
+// Tier-bounded monotonic variant insertion
 // ---------------------------------------------------------------------------
 
-// The row we hand to the store. `stats` are exactly what the craft produced from
-// its parents — never rescaled — and `power` is their cached sum.
 export interface VariantRow {
   name: string;
   nameKey: string;
   baseKey: string;
   glyph: string;
+  bgGlyph: string; // "" when there is no background emoji
   element: string;
   kind: string;
   stats: Stats;
   power: number;
+  tier: number;
   depth: number;
   discoveredBy: string;
 }
 
+export interface TopVariant {
+  id: string;
+  power: number;
+  item: Item;
+}
+
 /**
- * Storage port. Kept minimal and DB-agnostic so the insertion loop is
- * unit-testable and not coupled to postgres (or the LLM provider).
+ * Storage port. DB-agnostic so the insertion loop is unit-testable.
  */
 export interface VariantStore {
+  /** Strongest existing variant of a base name (null if none). */
+  topVariant(baseKey: string): Promise<TopVariant | null>;
   /**
    * Insert one variant. MUST throw a Postgres unique violation (code 23505) when
-   * `nameKey` is already taken — that thrown error is what drives disambiguation.
+   * `nameKey` is already taken — that thrown error drives numeral escalation.
    */
   insertVariant(row: VariantRow): Promise<Item>;
 }
 
+export interface InsertVariantParams {
+  // Stat distribution to follow (the parents' combined profile) — NOT from the
+  // LLM. Every minted power is spread across this so the result can't be weaker
+  // than both parents in any stat.
+  shape: StatShape;
+  outTier: number;
+  ceiling: number;
+  target: number;
+  depth: number;
+  discoveredBy: string;
+}
+
+export interface InsertVariantResult {
+  item: Item;
+  minted: boolean; // true when a NEW item row was created (false = reused existing)
+}
+
 /**
- * Insert `gen` under its name, keeping its parent-derived stats intact. If the
- * name is already taken (by a prior or concurrent craft), append the next roman
- * numeral and retry — so distinct recipes that happen to yield the same name
- * ("Frostbite", "Frostbite II", ...) each keep their OWN sensible stats instead
- * of being inflated to out-rank an unrelated variant.
+ * Mint a monotonic variant of `gen`'s name, bounded by the tier ceiling.
  *
- * Race-safety (do NOT replace the insert/catch with a pre-check SELECT — that
- * has a check-then-insert gap): the unique index on name_key lets only one
- * insert win a contested name; the loser catches the unique violation and takes
- * the next numeral.
+ * Reconciled invariants:
+ * - Variants of a base name, ordered by numeral, are strictly increasing in
+ *   power (each new one is forced strictly above the current max).
+ * - No variant exceeds the tier ceiling (newPower is clamped to `ceiling`).
+ * - If the current strongest variant is already AT/ABOVE the ceiling, nothing
+ *   is minted — the recipe simply reuses that top variant.
+ *
+ * Race-safety (do NOT replace the insert/catch with a pre-check SELECT): the
+ * unique index on name_key lets only one insert win a contested numeral; the
+ * loser catches the violation, RE-READS the now-higher max, and is forced above
+ * it (or reuses the top variant if the ceiling is now reached).
  */
-export async function insertUniqueVariant(
+export async function insertTierVariant(
   store: VariantStore,
   gen: CraftGenResult,
-  depth: number,
-  discoveredBy: string
-): Promise<Item> {
+  params: InsertVariantParams
+): Promise<InsertVariantResult> {
+  const { shape, outTier, ceiling, target, depth, discoveredBy } = params;
   const base = stripNumeral(gen.name).trim();
   const baseKey = normalize(base);
-  const p = power(gen.stats);
 
   for (let n = 1; n < 50; n++) {
     const suffix = roman(n);
     const name = suffix === "" ? base : `${base} ${suffix}`;
     const nameKey = normalize(name);
 
+    // Strongest existing variant of this base name (re-read every iteration so a
+    // collision picks up the winner's row).
+    const top = await store.topVariant(baseKey);
+    const max = top?.power ?? 0;
+
+    // Already maxed for this tier: do not mint — reuse the existing top variant.
+    if (top && max >= ceiling) {
+      return { item: top.item, minted: false };
+    }
+
+    // Force strictly above the current max, but never above the tier ceiling.
+    const newPower = Math.min(ceiling, Math.max(target, max + STEP));
+    const stats = statsFromShape(shape, newPower);
+
     try {
-      return await store.insertVariant({
+      const item = await store.insertVariant({
         name,
         nameKey,
         baseKey,
         glyph: gen.glyph,
+        bgGlyph: gen.bgGlyph,
         element: gen.element,
         kind: gen.kind,
-        stats: gen.stats, // parent-based; never rescaled
-        power: p,
+        stats,
+        power: newPower,
+        tier: outTier,
         depth,
         discoveredBy,
       });
+      return { item, minted: true };
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
-      // Name taken by a prior or concurrent insert: bump the numeral and retry.
+      // Name taken by a concurrent/prior insert: bump the numeral, recompute max.
     }
   }
 

@@ -17,26 +17,35 @@ const sql = postgres(connectionString, { prepare: false, max: 1 });
 const normalize = (s) => s.trim().toLowerCase().replace(/\s+/g, " ");
 const powerOf = (st) => st.health + st.attack + st.defense + st.luck;
 
-// Base (depth 0) items — the ones that drop from battle. `minLevel` gates loot:
-// Axe only from enemy level 3, Hammer only from level 5.
+// Base (depth 0) items — the ones that drop from battle. `minLevel` gates loot
+// and `tier` sets the power ceiling. Higher-tier ingredients are gated to later
+// levels, so the only way past a ceiling is to loot a tougher enemy: Axe (tier
+// 2) from level 3, Hammer (tier 3) from level 5. Everything else is tier 1.
 const baseItems = [
-  { name: "Rusty Sword",   glyph: "🗡️", element: "none",  kind: "weapon",  stats: { health: 0, attack: 6, defense: 1, luck: 0 }, minLevel: 1 },
-  { name: "Wooden Shield", glyph: "🛡️", element: "none",  kind: "armor",   stats: { health: 8, attack: 0, defense: 6, luck: 0 }, minLevel: 1 },
-  { name: "Fire Shard",    glyph: "🔥", element: "fire",  kind: "element", stats: { health: 0, attack: 4, defense: 0, luck: 2 }, minLevel: 1 },
-  { name: "Ice Shard",     glyph: "❄️", element: "ice",   kind: "element", stats: { health: 2, attack: 3, defense: 2, luck: 1 }, minLevel: 1 },
-  { name: "Grass",         glyph: "🌿", element: "grass", kind: "misc",    stats: { health: 3, attack: 1, defense: 2, luck: 2 }, minLevel: 1 },
-  { name: "Axe",           glyph: "🪓", element: "none",  kind: "weapon",  stats: { health: 0, attack: 9, defense: 1, luck: 0 }, minLevel: 3 },
-  { name: "Hammer",        glyph: "🔨", element: "none",  kind: "weapon",  stats: { health: 2, attack: 11, defense: 2, luck: 0 }, minLevel: 5 },
+  { name: "Rusty Sword",   glyph: "🗡️", element: "none",  kind: "weapon",  stats: { health: 0, attack: 6, defense: 1, luck: 0 }, minLevel: 1, tier: 1 },
+  { name: "Wooden Shield", glyph: "🛡️", element: "none",  kind: "armor",   stats: { health: 8, attack: 0, defense: 6, luck: 0 }, minLevel: 1, tier: 1 },
+  { name: "Fire Shard",    glyph: "🔥", element: "fire",  kind: "element", stats: { health: 0, attack: 4, defense: 0, luck: 2 }, minLevel: 1, tier: 1 },
+  { name: "Ice Shard",     glyph: "❄️", element: "ice",   kind: "element", stats: { health: 2, attack: 3, defense: 2, luck: 1 }, minLevel: 1, tier: 1 },
+  { name: "Grass",         glyph: "🌿", element: "grass", kind: "misc",    stats: { health: 3, attack: 1, defense: 2, luck: 2 }, minLevel: 1, tier: 1 },
+  { name: "Axe",           glyph: "🪓", element: "none",  kind: "weapon",  stats: { health: 0, attack: 9, defense: 1, luck: 0 }, minLevel: 3, tier: 2 },
+  { name: "Hammer",        glyph: "🔨", element: "none",  kind: "weapon",  stats: { health: 2, attack: 11, defense: 2, luck: 0 }, minLevel: 5, tier: 3 },
+  // New drops — elemental (glyph differs from element, so they show the layered aura).
+  { name: "Ember Dagger",  glyph: "🔪", element: "fire",   kind: "weapon", stats: { health: 0, attack: 6, defense: 0, luck: 3 }, minLevel: 2, tier: 1 },
+  { name: "Frost Bow",     glyph: "🏹", element: "ice",    kind: "weapon", stats: { health: 0, attack: 8, defense: 1, luck: 3 }, minLevel: 3, tier: 2 },
+  { name: "Storm Trident", glyph: "🔱", element: "storm",  kind: "weapon", stats: { health: 2, attack: 9, defense: 1, luck: 2 }, minLevel: 4, tier: 2 },
+  { name: "Venom Blade",   glyph: "🗡️", element: "poison", kind: "weapon", stats: { health: 0, attack: 7, defense: 1, luck: 4 }, minLevel: 4, tier: 2 },
+  { name: "Radiant Charm", glyph: "🔮", element: "light",  kind: "misc",   stats: { health: 4, attack: 2, defense: 4, luck: 8 }, minLevel: 6, tier: 3 },
 ];
 
-// Hardcoded craft results (depth 1). Seeded so the recipes below can point at
-// them without ever calling the LLM.
+// Hardcoded craft results (depth 1, tier 1). Seeded so the recipes below can
+// point at them without calling the LLM. Powers fit under the tier-1 ceiling (20).
+// `bg` is the layered background/aura emoji (what the LLM now supplies for real crafts).
 const craftedItems = [
-  { name: "Water",       glyph: "💧", element: "water", kind: "element", stats: { health: 6, attack: 3, defense: 5, luck: 2 } },
-  { name: "Fire Sword",  glyph: "⚔️", element: "fire",  kind: "weapon",  stats: { health: 0, attack: 12, defense: 1, luck: 2 } },
-  { name: "Ice Sword",   glyph: "🗡️", element: "ice",   kind: "weapon",  stats: { health: 2, attack: 10, defense: 2, luck: 3 } },
-  { name: "Fire Shield", glyph: "🛡️", element: "fire",  kind: "armor",   stats: { health: 8, attack: 3, defense: 7, luck: 2 } },
-  { name: "Ice Shield",  glyph: "🛡️", element: "ice",   kind: "armor",   stats: { health: 10, attack: 2, defense: 8, luck: 1 } },
+  { name: "Water",       glyph: "💧", bg: "🌊", element: "water", kind: "element", stats: { health: 6, attack: 3, defense: 5, luck: 2 }, tier: 1 },
+  { name: "Fire Sword",  glyph: "⚔️", bg: "🔥", element: "fire",  kind: "weapon",  stats: { health: 0, attack: 12, defense: 1, luck: 2 }, tier: 1 },
+  { name: "Ice Sword",   glyph: "🗡️", bg: "❄️", element: "ice",   kind: "weapon",  stats: { health: 2, attack: 10, defense: 2, luck: 3 }, tier: 1 },
+  { name: "Fire Shield", glyph: "🛡️", bg: "🔥", element: "fire",  kind: "armor",   stats: { health: 8, attack: 3, defense: 7, luck: 2 }, tier: 1 },
+  { name: "Ice Shield",  glyph: "🛡️", bg: "❄️", element: "ice",   kind: "armor",   stats: { health: 9, attack: 2, defense: 8, luck: 1 }, tier: 1 },
 ];
 
 // [inputA, inputB, output]
@@ -51,9 +60,9 @@ const recipes = [
 async function insertItem(it, depth) {
   const nameKey = normalize(it.name);
   const [row] = await sql`
-    insert into items (name, name_key, base_key, glyph, element, kind, stats, power, depth, min_level)
-    values (${it.name}, ${nameKey}, ${nameKey}, ${it.glyph}, ${it.element}, ${it.kind}::item_kind,
-            ${sql.json(it.stats)}, ${powerOf(it.stats)}, ${depth}, ${it.minLevel ?? 1})
+    insert into items (name, name_key, base_key, glyph, bg_glyph, element, kind, stats, power, depth, min_level, tier)
+    values (${it.name}, ${nameKey}, ${nameKey}, ${it.glyph}, ${it.bg ?? null}, ${it.element}, ${it.kind}::item_kind,
+            ${sql.json(it.stats)}, ${powerOf(it.stats)}, ${depth}, ${it.minLevel ?? 1}, ${it.tier ?? 1})
     returning id
   `;
   return row.id;
@@ -80,10 +89,10 @@ try {
     `;
   }
 
-  const items = await sql`select name, depth, power, min_level from items order by depth, min_level, name`;
+  const items = await sql`select name, depth, power, min_level, tier from items order by tier, depth, min_level, name`;
   console.log(`Seeded ${items.length} items:`);
   for (const r of items) {
-    console.log(`  depth ${r.depth}  lv${r.min_level}+  power ${r.power}  ${r.name}`);
+    console.log(`  tier ${r.tier}  depth ${r.depth}  lv${r.min_level}+  power ${r.power}  ${r.name}`);
   }
 
   const recs = await sql`

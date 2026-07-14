@@ -9,6 +9,7 @@ import {
   type HitResult,
 } from "@/game/battle/engine";
 import type { InventoryItem } from "@/game/types";
+import ItemGlyph from "./ItemGlyph";
 
 export interface PlayerStats {
   attack: number;
@@ -331,7 +332,7 @@ export default function BattleScreen({
       {/* Which item you're fighting with. */}
       <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm">
         <span className="text-slate-400">Weapon:</span>
-        <span className="text-lg leading-none">{weapon.glyph}</span>
+        <ItemGlyph element={weapon.element} glyph={weapon.glyph} bgGlyph={weapon.bgGlyph} size="sm" />
         <span className="truncate font-medium">{weapon.name}</span>
         <span className="ml-auto shrink-0 text-xs text-slate-400">
           ⚔️{stats.attack} 🛡️{stats.defense} 🍀{stats.luck}

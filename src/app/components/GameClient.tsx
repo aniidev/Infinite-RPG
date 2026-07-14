@@ -11,6 +11,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import ItemCard from "./ItemCard";
+import ItemGlyph from "./ItemGlyph";
 import BattleScreen from "./BattleScreen";
 import { MAX_INVENTORY_SLOTS, type InventoryItem } from "@/game/types";
 
@@ -354,7 +355,9 @@ function ResultModal({
         <div className="text-xs uppercase tracking-wide text-slate-400">
           {discovered ? "✨ New discovery!" : "Crafted"}
         </div>
-        <div className="my-3 text-6xl">{item.glyph}</div>
+        <div className="my-3 flex justify-center">
+          <ItemGlyph element={item.element} glyph={item.glyph} bgGlyph={item.bgGlyph} size="lg" />
+        </div>
         <div className="text-lg font-semibold">{item.name}</div>
         <div className="mt-1 text-xs uppercase tracking-wide text-fuchsia-300">
           {item.element} · {item.kind} · depth {item.depth}

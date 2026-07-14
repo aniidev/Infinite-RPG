@@ -14,7 +14,7 @@ export async function rollLoot(
   // Only base items whose min_level has been reached can drop — this is how
   // Axe (lv 3+) and Hammer (lv 5+) are gated to later levels.
   const pool = (await sql`
-    select id, name, glyph, element, kind, stats, depth
+    select id, name, glyph, bg_glyph as "bgGlyph", element, kind, stats, depth
     from items
     where depth = 0 and min_level <= ${level}
   `) as unknown as Item[];

@@ -20,7 +20,8 @@ export interface Stats {
 export interface Item {
   id: string;
   name: string;
-  glyph: string;
+  glyph: string; // foreground emoji (the item)
+  bgGlyph?: string | null; // optional LLM-authored background/aura emoji
   element: string;
   kind: string;
   stats: Stats;
@@ -31,12 +32,24 @@ export interface InventoryItem extends Item {
   quantity: number;
 }
 
-// What the LLM is asked to produce for a new craft (no id/depth — those are
-// assigned server-side).
+// Relative weights describing how an item's power is distributed. The LLM
+// returns a shape (not absolute stats); power is computed locally from tiers and
+// then distributed across the shape.
+export interface StatShape {
+  attack: number;
+  defense: number;
+  health: number;
+  luck: number;
+}
+
+// What the LLM is asked to produce for a new craft: IDENTITY only. It never sets
+// power, stats, or even the stat distribution — the result's stats come from the
+// parents' combined profile scaled by the tier formula, so a combine can never
+// be weaker than both parents. id/depth/tier/power/stats are assigned server-side.
 export interface CraftGenResult {
   name: string;
-  glyph: string;
+  glyph: string; // foreground emoji (the item itself)
+  bgGlyph: string; // background/aura emoji shown large behind it ("" = none)
   element: string;
   kind: string;
-  stats: Stats;
 }

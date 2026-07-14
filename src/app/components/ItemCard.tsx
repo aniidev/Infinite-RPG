@@ -1,6 +1,7 @@
 "use client";
 
 import { useDraggable, useDroppable } from "@dnd-kit/core";
+import ItemGlyph from "./ItemGlyph";
 import type { InventoryItem } from "@/game/types";
 
 const ELEMENT_COLORS: Record<string, string> = {
@@ -91,7 +92,7 @@ function CardBody({
       ].join(" ")}
     >
       <div className="flex items-center gap-2">
-        <span className="text-2xl leading-none">{item.glyph}</span>
+        <ItemGlyph element={item.element} glyph={item.glyph} bgGlyph={item.bgGlyph} size="sm" />
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{item.name}</div>
           <div className={`text-[11px] uppercase tracking-wide ${elementColor(item.element)}`}>

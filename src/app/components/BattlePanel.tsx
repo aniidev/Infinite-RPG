@@ -9,7 +9,6 @@ import {
   type HitResult,
 } from "@/game/battle/engine";
 import type { InventoryItem } from "@/game/types";
-import ItemGlyph from "./ItemGlyph";
 
 export interface PlayerStats {
   attack: number;
@@ -17,11 +16,11 @@ export interface PlayerStats {
   luck: number;
 }
 
-interface BattleScreenProps {
+interface BattlePanelProps {
   playerId: string;
-  // The item you chose to fight with; its stats drive your combat.
-  weapon: InventoryItem;
-  // Resume from where the player left off (persisted server-side).
+  // Combat stats derived from the player's EQUIPPED items (feeds the battle
+  // engine exactly as the single-weapon stats did before).
+  playerStats: PlayerStats;
   initialLevel: number;
   onLoot: (loot: InventoryItem[]) => void;
   onProgress: (level: number) => void;
@@ -33,7 +32,7 @@ type Status = "idle" | "fighting";
 interface Fx {
   id: number;
   attacker: Side;
-  target: Side; // who got hit
+  target: Side;
   kind: "hit" | "crit" | "block";
   text: string;
 }
@@ -42,26 +41,14 @@ interface BattleState {
   level: number;
   playerHp: number;
   enemy: Enemy;
-  whose: Side; // whose turn it is to attack
+  whose: Side;
   status: Status;
   fx: Fx | null;
   log: string[];
 }
 
-// Timing (ms). Deliberately slow so each exchange is readable; a hit's impact
-// resolves after SHAKE_MS, then a TURN_DELAY beat before the reply.
 const SHAKE_MS = 450;
 const TURN_DELAY = 850;
-
-// Your combat stats come from the selected weapon, plus a small base so a bare
-// Rusty Sword is still viable at level 1.
-function weaponStats(item: InventoryItem): PlayerStats {
-  return {
-    attack: 8 + item.stats.attack,
-    defense: 1 + item.stats.defense,
-    luck: item.stats.luck,
-  };
-}
 
 function makeInitialState(level: number): BattleState {
   const enemy = createEnemy(level);
@@ -126,11 +113,10 @@ function CombatantPanel({
 }) {
   return (
     <div className="relative flex-1">
-      {/* floating combat text */}
       {fx && fx.target === side && (
         <div
           key={fx.id}
-          className={`pointer-events-none absolute left-1/2 top-6 z-10 -translate-x-1/2 animate-floatUp text-sm font-bold ${fxColor(
+          className={`pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 animate-floatUp text-sm font-bold ${fxColor(
             fx.kind
           )}`}
         >
@@ -140,14 +126,14 @@ function CombatantPanel({
       <div className="flex flex-col items-center gap-2">
         <div
           className={[
-            "grid h-20 w-20 place-items-center rounded-2xl border text-5xl transition",
+            "grid h-24 w-24 place-items-center rounded-2xl border text-6xl transition",
             active ? "border-emerald-400/70 bg-slate-800" : "border-slate-700 bg-slate-800/60",
             attackClass(fx, side),
           ].join(" ")}
         >
           <span className={["inline-block", shakeClass(fx, side)].join(" ")}>{glyph}</span>
         </div>
-        <div className="w-full text-center">
+        <div className="w-full max-w-[220px] text-center">
           <div className="truncate text-sm font-medium">{name}</div>
           <div className="mb-1 text-xs text-slate-400">
             {hp}/{maxHp}
@@ -162,23 +148,20 @@ function CombatantPanel({
   );
 }
 
-export default function BattleScreen({
+export default function BattlePanel({
   playerId,
-  weapon,
+  playerStats,
   initialLevel,
   onLoot,
   onProgress,
-}: BattleScreenProps) {
-  // The battle runs on an imperative timer loop; we keep state in a ref and
-  // force re-renders so timeout callbacks always read the latest values.
+}: BattlePanelProps) {
   const stRef = useRef<BattleState>(makeInitialState(initialLevel));
   const [, forceRender] = useReducer((c: number) => c + 1, 0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fxCounter = useRef(0);
 
-  // Mirror props into a ref so the loop reads live values.
-  const propsRef = useRef({ playerId, weapon, onLoot, onProgress });
-  propsRef.current = { playerId, weapon, onLoot, onProgress };
+  const propsRef = useRef({ playerId, playerStats, onLoot, onProgress });
+  propsRef.current = { playerId, playerStats, onLoot, onProgress };
 
   const paint = useCallback(() => forceRender(), []);
 
@@ -191,14 +174,14 @@ export default function BattleScreen({
 
   const pushLog = useCallback((line: string) => {
     const st = stRef.current;
-    st.log = [line, ...st.log].slice(0, 6);
+    st.log = [line, ...st.log].slice(0, 5);
   }, []);
 
   const onVictory = useCallback(async () => {
     const st = stRef.current;
     const defeated = st.enemy;
     pushLog(`You defeated the ${defeated.name}!`);
-    st.status = "idle"; // STOP — the fight ends on a win, no auto-continue.
+    st.status = "idle";
     paint();
 
     try {
@@ -222,8 +205,6 @@ export default function BattleScreen({
       pushLog("The loot slipped away (network error).");
     }
 
-    // Advance to (and persist) the next level, ready but idle until the player
-    // chooses to fight again.
     const nextLevel = defeated.level + 1;
     propsRef.current.onProgress(nextLevel);
     st.level = nextLevel;
@@ -238,7 +219,7 @@ export default function BattleScreen({
   const onDefeat = useCallback(() => {
     const st = stRef.current;
     pushLog("You were defeated! Regroup and try again.");
-    st.status = "idle"; // STOP — retry the same level when ready.
+    st.status = "idle";
     st.playerHp = PLAYER_MAX_HP;
     st.enemy = createEnemy(st.level);
     st.whose = "player";
@@ -250,7 +231,7 @@ export default function BattleScreen({
     const st = stRef.current;
     if (st.status !== "fighting") return;
 
-    const ps = weaponStats(propsRef.current.weapon);
+    const ps = propsRef.current.playerStats;
     const whose = st.whose;
     const attacker = whose === "player" ? ps : st.enemy;
     const defender = whose === "player" ? st.enemy : ps;
@@ -281,7 +262,6 @@ export default function BattleScreen({
     );
     paint();
 
-    // After the shake, clear the fx and either end the fight or hand off the turn.
     timerRef.current = setTimeout(() => {
       st.fx = null;
       const defenderDead = whose === "player" ? st.enemy.hp <= 0 : st.playerHp <= 0;
@@ -301,11 +281,9 @@ export default function BattleScreen({
     }, SHAKE_MS);
   }, [paint, pushLog, onVictory, onDefeat]);
 
-  // Stable indirection so timeouts always call the latest runTurn.
   const runTurnRef = useRef(runTurn);
   runTurnRef.current = runTurn;
 
-  // No auto-start: the player presses Fight. Clean up timers on unmount.
   useEffect(() => () => clearTimer(), [clearTimer]);
 
   const startFight = useCallback(() => {
@@ -320,26 +298,15 @@ export default function BattleScreen({
   }, [clearTimer, paint]);
 
   const st = stRef.current;
-  const stats = weaponStats(weapon);
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
-      <div className="mb-4 flex items-center justify-between">
+    <div className="flex flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Battle</h2>
         <span className="text-xs text-slate-400">Depth level {st.level}</span>
       </div>
 
-      {/* Which item you're fighting with. */}
-      <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm">
-        <span className="text-slate-400">Weapon:</span>
-        <ItemGlyph element={weapon.element} glyph={weapon.glyph} bgGlyph={weapon.bgGlyph} size="sm" />
-        <span className="truncate font-medium">{weapon.name}</span>
-        <span className="ml-auto shrink-0 text-xs text-slate-400">
-          ⚔️{stats.attack} 🛡️{stats.defense} 🍀{stats.luck}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-3">
+      <div className="flex items-start justify-center gap-4">
         <CombatantPanel
           side="player"
           glyph="🧙"
@@ -347,13 +314,11 @@ export default function BattleScreen({
           hp={st.playerHp}
           maxHp={PLAYER_MAX_HP}
           hpColor="bg-emerald-500"
-          stats={stats}
+          stats={playerStats}
           active={st.status === "fighting" && st.whose === "player"}
           fx={st.fx}
         />
-
-        <div className="shrink-0 px-1 text-2xl text-slate-500">⚔️</div>
-
+        <div className="mt-8 shrink-0 text-2xl text-slate-500">⚔️</div>
         <CombatantPanel
           side="enemy"
           glyph={st.enemy.glyph}
@@ -370,16 +335,10 @@ export default function BattleScreen({
       <button
         onClick={startFight}
         disabled={st.status === "fighting"}
-        className="mt-5 w-full rounded-xl bg-emerald-600 py-2.5 font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mx-auto mt-4 w-full max-w-sm rounded-xl bg-emerald-600 py-2.5 font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {st.status === "fighting" ? "Fighting…" : `⚔️ Fight — Lv ${st.level}`}
       </button>
-
-      <ul className="mt-4 space-y-1 text-xs text-slate-400">
-        {st.log.map((line, i) => (
-          <li key={`${i}-${line}`}>{line}</li>
-        ))}
-      </ul>
     </div>
   );
 }

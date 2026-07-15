@@ -26,6 +26,7 @@ export interface Item {
   kind: string;
   stats: Stats;
   depth: number;
+  tier?: number; // read-only, for UI tier framing (defaults to 1 when absent)
 }
 
 export interface InventoryItem extends Item {

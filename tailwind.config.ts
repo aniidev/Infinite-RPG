@@ -43,6 +43,21 @@ const config: Config = {
           "20%": { opacity: "1" },
           "100%": { opacity: "0", transform: "translateY(-24px)" },
         },
+        lootFall: {
+          "0%": { opacity: "0", transform: "translateY(-34px) scale(0.8)" },
+          "18%": { opacity: "1" },
+          "100%": { opacity: "0", transform: "translateY(96px) scale(1)" },
+        },
+        popIn: {
+          "0%": { opacity: "0", transform: "scale(0.6)" },
+          "60%": { transform: "scale(1.08)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        badgePop: {
+          "0%": { opacity: "0", transform: "scale(0.4) rotate(-8deg)" },
+          "60%": { transform: "scale(1.15) rotate(3deg)" },
+          "100%": { opacity: "1", transform: "scale(1) rotate(0deg)" },
+        },
       },
       animation: {
         pulseGlow: "pulseGlow 1.1s ease-in-out infinite",
@@ -52,6 +67,9 @@ const config: Config = {
         strikeLeft: "strikeLeft 0.3s ease",
         block: "block 0.3s ease",
         floatUp: "floatUp 0.75s ease-out forwards",
+        lootFall: "lootFall 1s ease-in forwards",
+        popIn: "popIn 0.35s ease-out",
+        badgePop: "badgePop 0.5s ease-out",
       },
     },
   },

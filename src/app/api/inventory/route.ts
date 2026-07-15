@@ -12,7 +12,7 @@ export async function GET(req: Request) {
 
   const sql = getSql();
   const items = await sql`
-    select i.id, i.name, i.glyph, i.bg_glyph as "bgGlyph", i.element, i.kind, i.stats, i.depth, pi.quantity
+    select i.id, i.name, i.glyph, i.bg_glyph as "bgGlyph", i.element, i.kind, i.stats, i.depth, i.tier, pi.quantity
     from player_inventory pi
     join items i on i.id = pi.item_id
     where pi.player_id = ${playerId}

@@ -75,9 +75,9 @@ export function rollDamage(power: number): number {
  */
 export function resolveHit(attacker: Combatant, defender: Combatant): HitResult {
   const blockChance = clamp(
-    0.04 + defender.defense * 0.025 + Math.max(0, defender.defense - attacker.attack) * 0.015,
+    0.02 + defender.defense * 0.011 + Math.max(0, defender.defense - attacker.attack) * 0.007,
     0,
-    0.65
+    0.32
   );
   if (Math.random() < blockChance) {
     return { damage: 0, crit: false, blocked: true };

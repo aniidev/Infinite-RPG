@@ -123,13 +123,18 @@ export default function GameShell() {
   // How many UNITS of each item are committed to equip/mix slots. The inventory
   // shows the remaining quantity, so a stack of ×3 with one equipped still shows
   // ×2 in the bag (moved one, kept the rest); returning it stacks back up.
+  // A freshly crafted item lives ONLY in the result slot until the player claims
+  // it, so hide one unit of it from the bag too (it is already in the server-side
+  // inventory from the craft, but must appear exactly once (here, in the slot).
   const committedCounts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const id of [equip.weapon, equip.armor, equip.element, mix.a, mix.b]) {
+    const ids = [equip.weapon, equip.armor, equip.element, mix.a, mix.b];
+    if (result.status === "done") ids.push(result.item.id);
+    for (const id of ids) {
       if (id) m.set(id, (m.get(id) ?? 0) + 1);
     }
     return m;
-  }, [equip.weapon, equip.armor, equip.element, mix.a, mix.b]);
+  }, [equip.weapon, equip.armor, equip.element, mix.a, mix.b, result]);
 
   // Player combat stats = base + everything currently equipped (feeds the engine
   // just like the single-weapon stats did before).
@@ -170,6 +175,25 @@ export default function GameShell() {
     if (!drag || !drop) return;
     const { item, from } = drag;
     const { target } = drop;
+
+    // Claiming the freshly crafted item out of the result slot. It only ever
+    // moves OUT of the slot (never a drop target), and claiming empties the slot.
+    if (from === "result") {
+      if (result.status !== "done") return;
+      if (target === "weapon" || target === "armor" || target === "element") {
+        if (item.kind !== target) {
+          showToast(`A ${item.kind} can't go in the ${target} slot.`);
+          return;
+        }
+        setEquip((p) => ({ ...p, [target]: item.id }));
+      } else if (target === "mixA" || target === "mixB") {
+        const dst = target === "mixA" ? "a" : "b";
+        setMix((p) => ({ ...p, [dst]: item.id }));
+      }
+      // inventory (or any target) claims it; the item is already in the bag.
+      setResult({ status: "empty" });
+      return;
+    }
 
     if (target === "inventory") {
       if (from !== "inventory") clearFrom(from);
@@ -225,7 +249,7 @@ export default function GameShell() {
       const fresh = await refreshInventory(playerId);
       const resolved = fresh.find((i) => i.id === data.item.id) ?? (data.item as InventoryItem);
       setResult({ status: "done", item: resolved, discovered: !!data.discovered });
-      // Inputs were consumed server-side — clear the staged slots.
+      // Inputs were consumed server-side; clear the staged slots.
       setMix({ a: null, b: null });
     } catch (err) {
       // Failed craft consumes nothing; keep the staged items and offer retry.
@@ -235,6 +259,12 @@ export default function GameShell() {
 
   const clearSlot = useCallback((slot: "a" | "b") => {
     setMix((p) => ({ ...p, [slot]: null }));
+  }, []);
+
+  // Click-to-claim fallback: send the crafted item to the bag (it is already in
+  // the server inventory; this just releases the result slot so it shows there).
+  const claimToInventory = useCallback(() => {
+    setResult((r) => (r.status === "done" ? { status: "empty" } : r));
   }, []);
 
   const clearEquip = useCallback((slot: EquipSlot) => {
@@ -276,30 +306,30 @@ export default function GameShell() {
       setMix({ a: null, b: null });
       setResult({ status: "empty" });
       await refreshInventory(playerId);
-      showToast("Game restarted — only the Rusty Sword remains.");
+      showToast("Game restarted. Only the Rusty Sword remains.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Restart failed.");
     }
   }
 
   if (!playerId) {
-    return <div className="p-6 text-sm text-slate-400">Starting your adventure…</div>;
+    return <div className="p-6 font-body text-sm text-secondary">Starting your adventure…</div>;
   }
 
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col gap-3 p-3 md:h-[100dvh] md:overflow-hidden">
       <header className="flex shrink-0 items-center justify-between">
-        <h1 className="text-lg font-bold tracking-tight">Infinite Crafting RPG</h1>
+        <h1 className="font-display text-xl tracking-wide text-primary">Infinite Crafting RPG</h1>
         <button
           onClick={handleRestart}
-          className="rounded-lg border border-rose-800 bg-rose-950/40 px-3 py-1.5 text-sm font-medium text-rose-200 transition hover:bg-rose-900/50"
+          className="press rounded-paper border-2 border-ink bg-rust px-3 py-1.5 font-display text-sm uppercase tracking-wide text-primary"
         >
           Restart
         </button>
       </header>
 
       {error && (
-        <div className="shrink-0 rounded-lg border border-rose-800 bg-rose-950/60 px-3 py-2 text-sm text-rose-200">
+        <div className="shrink-0 rounded-paper border-2 border-ink bg-rust px-3 py-2 font-body text-sm text-primary">
           {error}
         </div>
       )}
@@ -312,8 +342,8 @@ export default function GameShell() {
       >
         <ActiveDragProvider value={activeItem}>
           <div className="flex min-h-0 flex-1 flex-col gap-3">
-            {/* BATTLE — top, focal (kept centered/narrower than the bottom row) */}
-            <div className="relative mx-auto w-full max-w-3xl shrink-0">
+            {/* BATTLE: top, focal, spanning the full width of the bottom row */}
+            <div className="relative w-full shrink-0">
               <BattlePanel
                 playerId={playerId}
                 playerStats={playerStats}
@@ -330,7 +360,7 @@ export default function GameShell() {
                   {lootBurst.items.map((it, i) => (
                     <span
                       key={`${it.id}-${i}`}
-                      className="animate-lootFall text-3xl drop-shadow"
+                      className="animate-lootFall text-3xl"
                       style={{ animationDelay: `${i * 80}ms` }}
                     >
                       {it.glyph}
@@ -340,7 +370,7 @@ export default function GameShell() {
               )}
             </div>
 
-            {/* BOTTOM — equipped | inventory | mixing (stacks on narrow) */}
+            {/* BOTTOM: equipped | inventory | mixing (stacks on narrow) */}
             <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
               <div className="order-2 shrink-0 md:order-1 md:w-52">
                 <EquipPanel
@@ -362,6 +392,7 @@ export default function GameShell() {
                   result={result}
                   onClearSlot={clearSlot}
                   onMix={doMix}
+                  onClaim={claimToInventory}
                 />
               </div>
             </div>
@@ -378,7 +409,7 @@ export default function GameShell() {
       </DndContext>
 
       {toast && (
-        <div className="fixed bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-sm shadow-xl">
+        <div className="fixed bottom-4 left-1/2 z-[110] -translate-x-1/2 rounded-paper border-2 border-ink bg-stone-700 px-4 py-2 font-body text-sm text-primary shadow-ink">
           {toast}
         </div>
       )}

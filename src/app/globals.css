@@ -1,18 +1,113 @@
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   PALETTE TOKENS — the single source of truth. No hex anywhere else.
+   (from the medieval-theme skill; warm stone + aged parchment, no blue.)
+--------------------------------------------------------------------------- */
 :root {
   color-scheme: dark;
+
+  /* stone — warm dark base */
+  --stone-950: #14120f;
+  --stone-900: #1c1a16;
+  --stone-800: #262320;
+  --stone-700: #33302a;
+  --stone-600: #46413a;
+  --stone-500: #5d574d;
+  --ink: #0d0c0a;
+
+  /* parchment — paper surfaces */
+  --parchment-100: #ede3c8;
+  --parchment-200: #e0d3b0;
+  --parchment-300: #cdbe96;
+  --parchment-400: #b0a07c;
+  --ink-text: #2a241a;
+
+  /* text on stone */
+  --text-primary: #d8cfba;
+  --text-secondary: #9c9382;
+  --text-muted: #6e675b;
+
+  /* accents — muted, earthy */
+  --rust: #8c3a2b;
+  --ember: #c2571e;
+  --brass: #b8873b;
+  --moss: #5a6b3f;
+  --steel: #6e8494;
+  --bone: #c9bfa5;
 }
 
-body {
-  @apply bg-slate-950 text-slate-100 antialiased;
-  background-image: radial-gradient(
-      circle at 20% 0%,
-      rgba(56, 189, 248, 0.08),
-      transparent 40%
-    ),
-    radial-gradient(circle at 80% 20%, rgba(244, 114, 182, 0.08), transparent 45%);
-  min-height: 100vh;
+@layer base {
+  body {
+    background-color: var(--stone-900);
+    color: var(--text-primary);
+    font-family: "EB Garamond", Georgia, serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  /* Stone panel: 2px ink border, hard offset shadow, slightly softened corner. */
+  .panel {
+    border: 2px solid var(--ink);
+    background-color: var(--stone-800);
+    border-radius: 3px;
+    box-shadow: 3px 3px 0 0 var(--ink);
+  }
+
+  /* Recessed empty slot — a hole cut in the paper. */
+  .slot-inset {
+    background-color: var(--stone-950);
+    border: 2px solid var(--ink);
+    border-radius: 3px;
+    box-shadow: inset 2px 2px 0 0 var(--ink);
+  }
+
+  /* Physical paper interaction: hard ink shadow, lift up-left on hover, press
+     down-right. Short + snappy, no blur. */
+  .press {
+    box-shadow: 3px 3px 0 0 var(--ink);
+    transition: transform 140ms ease-out, box-shadow 140ms ease-out;
+  }
+  .press:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 0 var(--ink);
+  }
+  .press:active {
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0 0 var(--ink);
+  }
+  .press:disabled {
+    opacity: 0.5;
+  }
+  .press:disabled:hover {
+    transform: none;
+    box-shadow: 3px 3px 0 0 var(--ink);
+  }
+
+  /* Element tint washes — parchment mixed toward the element's accent token.
+     Applied to the glyph area of an item card. Tokens only. */
+  .wash-ember {
+    background-color: color-mix(in srgb, var(--ember) 20%, var(--parchment-100));
+  }
+  .wash-steel {
+    background-color: color-mix(in srgb, var(--steel) 20%, var(--parchment-100));
+  }
+  .wash-moss {
+    background-color: color-mix(in srgb, var(--moss) 20%, var(--parchment-100));
+  }
+  .wash-brass {
+    background-color: color-mix(in srgb, var(--brass) 22%, var(--parchment-100));
+  }
+  .wash-rust {
+    background-color: color-mix(in srgb, var(--rust) 20%, var(--parchment-100));
+  }
+  .wash-bone {
+    background-color: color-mix(in srgb, var(--bone) 32%, var(--parchment-100));
+  }
 }

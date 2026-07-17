@@ -108,7 +108,7 @@ Paper grain is what separates this from "flat dark theme." Apply it.
 
 ## Component notes
 
-* Item card: parchment face, 2px ink border, hard ink shadow, element tint as a wash on the glyph area, tier shown as a border treatment (higher tier gets a `--brass` inner rule or a doubled ink border). Name in Cinzel, stats in EB Garamond with tabular numerals, all in `--ink-text` on the parchment.
+* Item card: the card face is `--stone-700` with a 2px `--ink` border and a hard ink shadow, so cards read as part of the dark world, not light paper pasted on top. Parchment is an ACCENT only, never the whole face: use it for a thin nameplate strip behind the item name and for the mixing-table felt. Card text is `--text-primary` / `--text-secondary` (the on-stone tokens), NOT `--ink-text`. Element is shown as a colored left edge bar plus a low-opacity wash on the glyph area (element map). Tier is a border treatment plus `--brass` pips along the top edge, never a bare number. Name in Cinzel, stats in EB Garamond with tabular numerals.
 * HP bars: flat `--rust` fill in an ink-outlined trough, no gradient, no glow, no rounded ends. Segment it with thin ink ticks if possible so it reads hand-drawn.
 * Attack button: the loudest element on screen. Parchment or `--brass` face, thick ink border, hard shadow, Cinzel caps. It should look like a stamped seal or a wooden sign.
 * Panels (battle, inventory, mixing, equipped): `--stone-800` with a 2px ink border, grain overlay, and a hard shadow to separate them from the `--stone-900` background.

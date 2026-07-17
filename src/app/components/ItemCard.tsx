@@ -4,68 +4,60 @@ import ItemGlyph from "./ItemGlyph";
 import type { InventoryItem } from "@/game/types";
 
 // ---------------------------------------------------------------------------
-// Two visual systems drive cohesion:
-//   1. ELEMENT -> color palette (card tint + label color). One place to edit.
-//   2. TIER    -> frame (border/ring/accent). Higher tier reads as rarer.
-// Add a new element by adding one row here.
+// Element map: drives the glyph-panel wash AND the card's left edge bar.
+// The skill's canonical map is fire->ember, ice->steel, none->bone; extended
+// here for the game's other elements. Add new elements HERE only, never inline.
+// Class strings are literal so Tailwind keeps them.
 // ---------------------------------------------------------------------------
-
-interface ElementStyle {
-  card: string; // gradient + border tint for the card body
-  label: string; // element/kind label color
-}
-
-const ELEMENT_STYLES: Record<string, ElementStyle> = {
-  none: { card: "from-slate-800/70 to-slate-900/70 border-slate-700", label: "text-slate-400" },
-  fire: { card: "from-orange-950/60 to-red-950/40 border-orange-800/70", label: "text-orange-300" },
-  ice: { card: "from-cyan-950/60 to-sky-950/40 border-cyan-800/70", label: "text-cyan-300" },
-  water: { card: "from-blue-950/60 to-sky-950/40 border-blue-800/70", label: "text-blue-300" },
-  grass: { card: "from-green-950/60 to-emerald-950/40 border-green-800/70", label: "text-green-300" },
-  lightning: { card: "from-yellow-950/60 to-amber-950/40 border-yellow-800/70", label: "text-yellow-300" },
-  thunder: { card: "from-yellow-950/60 to-amber-950/40 border-yellow-800/70", label: "text-yellow-300" },
-  poison: { card: "from-lime-950/60 to-green-950/40 border-lime-800/70", label: "text-lime-300" },
-  dark: { card: "from-violet-950/60 to-slate-950/50 border-violet-800/70", label: "text-violet-300" },
-  shadow: { card: "from-violet-950/60 to-slate-950/50 border-violet-800/70", label: "text-violet-300" },
-  light: { card: "from-amber-950/50 to-yellow-950/30 border-amber-700/70", label: "text-amber-200" },
+const ELEMENT: Record<string, { wash: string; bar: string }> = {
+  none: { wash: "wash-bone", bar: "border-l-bone" },
+  fire: { wash: "wash-ember", bar: "border-l-ember" },
+  ice: { wash: "wash-steel", bar: "border-l-steel" },
+  water: { wash: "wash-steel", bar: "border-l-steel" },
+  metal: { wash: "wash-steel", bar: "border-l-steel" },
+  grass: { wash: "wash-moss", bar: "border-l-moss" },
+  nature: { wash: "wash-moss", bar: "border-l-moss" },
+  poison: { wash: "wash-moss", bar: "border-l-moss" },
+  light: { wash: "wash-brass", bar: "border-l-brass" },
+  holy: { wash: "wash-brass", bar: "border-l-brass" },
+  lightning: { wash: "wash-brass", bar: "border-l-brass" },
+  dark: { wash: "wash-bone", bar: "border-l-bone" },
 };
 
-const ELEMENT_FALLBACK: ElementStyle = {
-  card: "from-fuchsia-950/50 to-purple-950/40 border-fuchsia-800/70",
-  label: "text-fuchsia-300",
+function elementStyle(element: string): { wash: string; bar: string } {
+  return ELEMENT[element.toLowerCase().trim()] ?? ELEMENT.none;
+}
+
+// Kind -> small monochrome ink icon shown in the glyph-panel corner. The FE0E
+// variation selector forces text (non-emoji, single-color) rendering.
+const KIND_ICON: Record<string, string> = {
+  weapon: "⚔︎", // crossed swords
+  armor: "⛨︎", // shield
+  element: "✦", // star
+  misc: "◆", // diamond
 };
 
-function elementStyle(element: string): ElementStyle {
-  return ELEMENT_STYLES[element.toLowerCase().trim()] ?? ELEMENT_FALLBACK;
+function kindIcon(kind: string): string {
+  return KIND_ICON[kind.toLowerCase().trim()] ?? KIND_ICON.misc;
 }
 
-// Tier -> frame treatment. tierBadge color kept in the same family.
-function tierFrame(tier: number): string {
-  switch (Math.max(1, Math.min(5, tier))) {
-    case 5:
-      return "ring-2 ring-fuchsia-400/90 shadow-[0_0_12px_rgba(232,121,249,0.35)]";
-    case 4:
-      return "ring-2 ring-amber-400/85 shadow-[0_0_10px_rgba(251,191,36,0.3)]";
-    case 3:
-      return "ring-2 ring-violet-400/75";
-    case 2:
-      return "ring-1 ring-sky-400/70";
-    default:
-      return "ring-1 ring-slate-700";
-  }
-}
+// The 3D emoji float above the flat paper world; knock them back into it.
+// One place here, one in BattlePanel. Removable in one line.
+const GLYPH_FILTER = { filter: "saturate(0.65) contrast(1.05) sepia(0.15)" } as const;
 
-function tierBadgeClass(tier: number): string {
+// Tier -> ink/brass border treatment (paired with the brass pips up top).
+function tierOutline(tier: number): string {
   switch (Math.max(1, Math.min(5, tier))) {
     case 5:
-      return "bg-fuchsia-500/25 text-fuchsia-200";
+      return "outline outline-[3px] outline-brass outline-offset-[-5px]";
     case 4:
-      return "bg-amber-500/25 text-amber-200";
+      return "outline outline-2 outline-brass outline-offset-[-5px]";
     case 3:
-      return "bg-violet-500/25 text-violet-200";
+      return "outline outline-2 outline-brass outline-offset-[-3px]";
     case 2:
-      return "bg-sky-500/25 text-sky-200";
+      return "outline outline-1 outline-brass outline-offset-[-3px]";
     default:
-      return "bg-slate-700/60 text-slate-300";
+      return "";
   }
 }
 
@@ -76,102 +68,152 @@ interface ItemCardProps {
   size?: ItemCardSize;
 }
 
-export default function ItemCard({ item, size = "full" }: ItemCardProps) {
-  const el = elementStyle(item.element);
-  const tier = item.tier ?? 1;
-
-  // A square icon tile. Shows only the glyph; the attributes appear on hover.
-  if (size === "tile") {
-    return (
-      <div className="group relative">
-        <div
-          className={`grid h-14 w-14 place-items-center rounded-lg border bg-gradient-to-br ${el.card} ${tierFrame(tier)}`}
-        >
-          <ItemGlyph element={item.element} glyph={item.glyph} bgGlyph={item.bgGlyph} size="sm" />
-        </div>
-        <span
-          className={`pointer-events-none absolute -right-1 -top-1 rounded px-1 text-[8px] font-bold ${tierBadgeClass(tier)}`}
-        >
-          {tier}
-        </span>
-        {/* attributes on hover */}
-        <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap opacity-0 transition duration-150 group-hover:opacity-100">
-          <div className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-center shadow-xl">
-            <div className="text-[11px] font-semibold">{item.name}</div>
-            <div className={`text-[9px] uppercase tracking-wide ${el.label}`}>
-              {item.element} · {item.kind}
-            </div>
-            <div className="mt-1 flex justify-center gap-1.5 font-mono text-[10px] text-slate-200">
-              <span>❤️{item.stats.health}</span>
-              <span>⚔️{item.stats.attack}</span>
-              <span>🛡️{item.stats.defense}</span>
-              <span>🍀{item.stats.luck}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (size === "compact") {
-    return (
-      <div
-        className={`flex items-center gap-1.5 rounded-lg border bg-gradient-to-br p-1.5 ${el.card} ${tierFrame(tier)}`}
-        title={item.name}
-      >
-        <ItemGlyph element={item.element} glyph={item.glyph} bgGlyph={item.bgGlyph} size="sm" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[11px] font-semibold leading-tight">{item.name}</div>
-          <div className="mt-0.5 flex gap-1 font-mono text-[9px] text-slate-300">
-            <span>⚔️{item.stats.attack}</span>
-            <span>🛡️{item.stats.defense}</span>
-            <span>❤️{item.stats.health}</span>
-            <span>🍀{item.stats.luck}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+// Brass pips along the top edge encode tier (no bare number). Tier 1 shows none.
+function TierPips({ tier }: { tier: number }) {
+  const n = Math.max(1, Math.min(5, tier));
+  if (n < 2) return null;
   return (
-    <div
-      className={`select-none rounded-xl border bg-gradient-to-br p-2.5 shadow-lg ${el.card} ${tierFrame(tier)}`}
-    >
-      <div className="flex items-center gap-2">
-        <ItemGlyph element={item.element} glyph={item.glyph} bgGlyph={item.bgGlyph} size="sm" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold leading-tight">{item.name}</div>
-          <div className={`truncate text-[10px] uppercase tracking-wide ${el.label}`}>
-            {item.element} · {item.kind}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${tierBadgeClass(tier)}`}>
-            T{tier}
-          </span>
-          {item.quantity > 1 && (
-            <span className="rounded bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-slate-300">
-              ×{item.quantity}
-            </span>
-          )}
-        </div>
-      </div>
+    <span className="pointer-events-none absolute left-1/2 top-0 z-10 flex -translate-x-1/2 -translate-y-1/2 gap-0.5">
+      {Array.from({ length: n }).map((_, i) => (
+        <span key={i} className="h-1.5 w-2 border border-ink bg-brass" />
+      ))}
+    </span>
+  );
+}
 
-      <div className="mt-2 grid grid-cols-4 gap-1 text-center text-[10px] text-slate-200">
-        <Stat icon="❤️" value={item.stats.health} />
-        <Stat icon="⚔️" value={item.stats.attack} />
-        <Stat icon="🛡️" value={item.stats.defense} />
-        <Stat icon="🍀" value={item.stats.luck} />
+// Quantity marker, bottom-right, only when a stack holds more than one.
+function QtyBadge({ quantity }: { quantity: number }) {
+  if (quantity <= 1) return null;
+  return (
+    <span className="pointer-events-none absolute -bottom-1.5 -right-1.5 z-10 rounded-paper border-2 border-ink bg-stone-900 px-1 font-display text-[10px] leading-tight tabular-nums text-primary shadow-ink-sm">
+      x{quantity}
+    </span>
+  );
+}
+
+// Glyph on its element-tinted panel, with a monochrome kind icon in the corner.
+function GlyphPanel({
+  item,
+  box,
+  glyphSize,
+}: {
+  item: InventoryItem;
+  box: string;
+  glyphSize: "sm" | "md" | "lg";
+}) {
+  const { wash } = elementStyle(item.element);
+  return (
+    <span
+      className={`relative grid shrink-0 place-items-center rounded-paper border-2 border-ink ${wash} ${box}`}
+    >
+      <span style={GLYPH_FILTER}>
+        <ItemGlyph element={item.element} glyph={item.glyph} bgGlyph={item.bgGlyph} size={glyphSize} />
+      </span>
+      <span className="absolute bottom-0 right-0.5 font-body text-[10px] leading-none text-ink">
+        {kindIcon(item.kind)}
+      </span>
+    </span>
+  );
+}
+
+// Hover/tap tooltip: full name, the four stats (Cinzel caps labels, no emoji),
+// element, kind, tier.
+function StatsTooltip({ item }: { item: InventoryItem }) {
+  const tier = item.tier ?? 1;
+  return (
+    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-44 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+      <div className="rounded-paper border-2 border-ink bg-stone-900 px-2.5 py-2 text-center shadow-ink">
+        <div className="font-display text-[12px] leading-tight text-primary">{item.name}</div>
+        <div className="mt-0.5 font-body text-[10px] uppercase tracking-wide text-secondary">
+          {item.element} · {item.kind} · tier {tier}
+        </div>
+        <div className="mt-2 grid grid-cols-4 gap-1 font-display text-[9px] tracking-wide text-secondary">
+          <span>HP</span>
+          <span>ATK</span>
+          <span>DEF</span>
+          <span>LCK</span>
+        </div>
+        <div className="grid grid-cols-4 gap-1 font-body text-[12px] tabular-nums text-primary">
+          <span>{item.stats.health}</span>
+          <span>{item.stats.attack}</span>
+          <span>{item.stats.defense}</span>
+          <span>{item.stats.luck}</span>
+        </div>
       </div>
     </div>
   );
 }
 
-function Stat({ icon, value }: { icon: string; value: number }) {
+export default function ItemCard({ item, size = "full" }: ItemCardProps) {
+  const tier = item.tier ?? 1;
+  const { bar } = elementStyle(item.element);
+  const power = item.power ?? 0;
+
+  // Small square icon tile (kept for compatibility; glyph + hover tooltip).
+  if (size === "tile") {
+    return (
+      <div className="group relative">
+        <div
+          className={`relative grid h-16 w-16 place-items-center rounded-paper border-2 border-ink border-l-4 ${bar} bg-stone-700 shadow-ink ${tierOutline(
+            tier
+          )}`}
+        >
+          <TierPips tier={tier} />
+          <GlyphPanel item={item} box="h-11 w-11" glyphSize="sm" />
+        </div>
+        <StatsTooltip item={item} />
+      </div>
+    );
+  }
+
+  // Compact: horizontal, glyph + full (wrapping) name + power. Used in equip /
+  // mixing slots and the drag overlay. Name is never truncated. No stack badge:
+  // these slots hold a single staged unit.
+  if (size === "compact") {
+    return (
+      <div className="group relative">
+        <div
+          className={`relative flex items-center gap-2 rounded-paper border-2 border-ink border-l-4 ${bar} bg-stone-700 p-1.5 shadow-ink ${tierOutline(
+            tier
+          )}`}
+        >
+          <TierPips tier={tier} />
+          <GlyphPanel item={item} box="h-11 w-11" glyphSize="sm" />
+          <div className="min-w-0 flex-1">
+            <div className="font-display text-[11px] leading-tight tracking-wide text-primary">
+              {item.name}
+            </div>
+            <div className="mt-0.5 font-display text-[13px] leading-none tabular-nums text-brass">
+              {power}
+            </div>
+          </div>
+        </div>
+        <StatsTooltip item={item} />
+      </div>
+    );
+  }
+
+  // Full card (inventory, four per row). Face shows ONLY: glyph, name, power,
+  // quantity. Everything else lives in the hover tooltip.
   return (
-    <div className="rounded bg-slate-950/40 py-0.5">
-      <div>{icon}</div>
-      <div className="font-mono">{value}</div>
+    <div className="group relative">
+      <div
+        className={`press relative flex select-none flex-col items-center gap-1.5 rounded-paper border-2 border-ink border-l-4 ${bar} bg-stone-700 p-2.5 ${tierOutline(
+          tier
+        )}`}
+      >
+        <TierPips tier={tier} />
+        <GlyphPanel item={item} box="h-14 w-14" glyphSize="md" />
+        <div className="w-full text-center font-display text-[12px] leading-tight tracking-wide text-primary">
+          {item.name}
+        </div>
+        <div className="flex items-baseline gap-1 font-display tabular-nums text-brass">
+          <span className="text-lg leading-none">{power}</span>
+          <span className="font-body text-[9px] uppercase tracking-wide text-secondary">pwr</span>
+        </div>
+        <QtyBadge quantity={item.quantity} />
+      </div>
+      <StatsTooltip item={item} />
     </div>
   );
 }

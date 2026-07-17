@@ -27,6 +27,7 @@ export interface Item {
   stats: Stats;
   depth: number;
   tier?: number; // read-only, for UI tier framing (defaults to 1 when absent)
+  power?: number; // read-only, total power for the card's headline number
 }
 
 export interface InventoryItem extends Item {

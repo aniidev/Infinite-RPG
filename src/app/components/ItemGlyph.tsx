@@ -27,21 +27,23 @@ function backgroundFor(element: string): string | null {
 
 type Size = "sm" | "md" | "lg";
 
+// bg = the large faded aura emoji, now CENTERED (no offset) so it stays inside
+// the square. fg = the smaller item emoji, nudged down-left so it reads layered.
 const SIZES: Record<Size, { box: string; bg: string; fg: string }> = {
   sm: {
     box: "h-8 w-8 text-2xl",
-    bg: "scale-[1.5] -translate-x-[5px] -translate-y-[3px]",
-    fg: "text-[17px] translate-x-[5px] translate-y-[3px]",
+    bg: "scale-[1.4]",
+    fg: "text-[17px] -translate-x-[4px] translate-y-[5px]",
   },
   md: {
     box: "h-12 w-12 text-4xl",
-    bg: "scale-[1.5] -translate-x-[6px] -translate-y-[4px]",
-    fg: "text-3xl translate-x-[6px] translate-y-[4px]",
+    bg: "scale-[1.4]",
+    fg: "text-3xl -translate-x-[5px] translate-y-[6px]",
   },
   lg: {
     box: "h-20 w-20 text-6xl",
-    bg: "scale-[1.45] -translate-x-3 -translate-y-2",
-    fg: "text-5xl translate-x-3 translate-y-2",
+    bg: "scale-[1.4]",
+    fg: "text-5xl -translate-x-2 translate-y-3",
   },
 };
 
@@ -60,7 +62,7 @@ export default function ItemGlyph({ element, glyph, bgGlyph, size = "sm" }: Item
   return (
     <span className={`relative inline-grid shrink-0 place-items-center leading-none ${s.box}`}>
       {layered && (
-        <span aria-hidden className={`col-start-1 row-start-1 select-none opacity-35 ${s.bg}`}>
+        <span aria-hidden className={`col-start-1 row-start-1 select-none opacity-60 ${s.bg}`}>
           {bg}
         </span>
       )}

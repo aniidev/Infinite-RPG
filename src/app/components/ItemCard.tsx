@@ -116,6 +116,29 @@ function GlyphPanel({
   );
 }
 
+// One stat on the inventory card: Cinzel caps label + tabular value. `align`
+// pushes the pair to the left or right edge so the two columns flank the glyph.
+function StatLine({
+  label,
+  value,
+  align,
+}: {
+  label: string;
+  value: number;
+  align: "left" | "right";
+}) {
+  return (
+    <div
+      className={`flex items-baseline gap-1 whitespace-nowrap ${
+        align === "right" ? "justify-end" : "justify-start"
+      }`}
+    >
+      <span className="font-display text-[11px] tracking-wide text-secondary">{label}</span>
+      <span className="font-body text-[16px] leading-none tabular-nums text-primary">{value}</span>
+    </div>
+  );
+}
+
 // Hover/tap tooltip: full name, the four stats (Cinzel caps labels, no emoji),
 // element, kind, tier.
 function StatsTooltip({ item }: { item: InventoryItem }) {
@@ -193,27 +216,31 @@ export default function ItemCard({ item, size = "full" }: ItemCardProps) {
     );
   }
 
-  // Full card (inventory, four per row). Face shows ONLY: glyph, name, power,
-  // quantity. Everything else lives in the hover tooltip.
+  // Full card (inventory, four per row). All four stats flank the glyph to fill
+  // the side space: Health + Luck on the left, Attack + Defense on the right.
+  // No hover tooltip here — every stat is already on the face.
   return (
-    <div className="group relative">
-      <div
-        className={`press relative flex select-none flex-col items-center gap-1.5 rounded-paper border-2 border-ink border-l-4 ${bar} bg-stone-700 p-2.5 ${tierOutline(
-          tier
-        )}`}
-      >
-        <TierPips tier={tier} />
+    <div
+      className={`press relative flex select-none flex-col items-center gap-1.5 rounded-paper border-2 border-ink border-l-4 ${bar} bg-stone-700 p-2.5 ${tierOutline(
+        tier
+      )}`}
+    >
+      <TierPips tier={tier} />
+      <div className="flex w-full items-center justify-between gap-1">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <StatLine label="HP" value={item.stats.health} align="left" />
+          <StatLine label="LCK" value={item.stats.luck} align="left" />
+        </div>
         <GlyphPanel item={item} box="h-14 w-14" glyphSize="md" />
-        <div className="w-full text-center font-display text-[12px] leading-tight tracking-wide text-primary">
-          {item.name}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <StatLine label="ATK" value={item.stats.attack} align="right" />
+          <StatLine label="DEF" value={item.stats.defense} align="right" />
         </div>
-        <div className="flex items-baseline gap-1 font-display tabular-nums text-brass">
-          <span className="text-lg leading-none">{power}</span>
-          <span className="font-body text-[9px] uppercase tracking-wide text-secondary">pwr</span>
-        </div>
-        <QtyBadge quantity={item.quantity} />
       </div>
-      <StatsTooltip item={item} />
+      <div className="w-full text-center font-display text-[12px] leading-tight tracking-wide text-primary">
+        {item.name}
+      </div>
+      <QtyBadge quantity={item.quantity} />
     </div>
   );
 }

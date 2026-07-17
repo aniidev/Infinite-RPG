@@ -132,6 +132,14 @@ export default function MixingPanel({
       >
         {buttonLabel}
       </button>
+
+      {/* Drag an unwanted item here to discard the whole stack. */}
+      <DropZone target="trash" className="mt-3">
+        <div className="slot-inset flex h-14 w-full flex-col items-center justify-center gap-0.5 text-rust">
+          <span className="text-lg leading-none">🗑</span>
+          <span className="font-display text-[10px] uppercase tracking-wide">Drag here to discard</span>
+        </div>
+      </DropZone>
     </div>
   );
 }

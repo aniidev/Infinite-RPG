@@ -163,6 +163,32 @@ export default function GameShell() {
     }
   }, []);
 
+  // Discard an unwanted item: removes the whole stack from the player's bag.
+  // Confirmed first so a stray drop can't silently delete a stack.
+  const discardItem = useCallback(
+    async (item: InventoryItem) => {
+      if (!playerId) return;
+      const label = item.quantity > 1 ? `${item.name} (x${item.quantity})` : item.name;
+      if (!window.confirm(`Discard ${label}? This removes the whole stack for good.`)) return;
+      try {
+        const res = await fetch("/api/inventory/discard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerId, itemId: item.id }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? "Discard failed.");
+        }
+        await refreshInventory(playerId);
+        showToast(`Discarded ${item.name}.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Discard failed.");
+      }
+    },
+    [playerId, refreshInventory, showToast]
+  );
+
   function handleDragStart(e: DragStartEvent) {
     const data = e.active.data.current as DragData | undefined;
     setActiveItem(data?.item ?? null);
@@ -175,6 +201,15 @@ export default function GameShell() {
     if (!drag || !drop) return;
     const { item, from } = drag;
     const { target } = drop;
+
+    // Dropped on the trash: pull it out of whatever slot it came from, then
+    // discard the whole stack (with a confirm inside discardItem).
+    if (target === "trash") {
+      if (from === "result") setResult({ status: "empty" });
+      else clearFrom(from); // no-op when dragged from the inventory
+      void discardItem(item);
+      return;
+    }
 
     // Claiming the freshly crafted item out of the result slot. It only ever
     // moves OUT of the slot (never a drop target), and claiming empties the slot.

@@ -10,7 +10,7 @@ export type EquipSlot = "weapon" | "armor" | "element";
 // "result" is a drag SOURCE only (the freshly crafted item awaiting claim); it
 // is never a drop target.
 export type DragFrom = "inventory" | EquipSlot | "mixA" | "mixB" | "result";
-export type DropTarget = EquipSlot | "mixA" | "mixB" | "inventory";
+export type DropTarget = EquipSlot | "mixA" | "mixB" | "inventory" | "trash";
 
 export interface DragData {
   item: InventoryItem;

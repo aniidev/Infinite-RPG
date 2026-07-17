@@ -8,32 +8,112 @@ interface EquipPanelProps {
   armor: InventoryItem | null;
   element: InventoryItem | null;
   onClear: (slot: EquipSlot) => void;
+  level: number;
+  winsIntoLevel: number;
+  winsNeeded: number;
 }
 
 const SLOTS: ReadonlyArray<{ slot: EquipSlot; label: string; icon: string; kind: string }> = [
-  { slot: "weapon", label: "Weapon", icon: "⚔️", kind: "weapon" },
-  { slot: "armor", label: "Armor", icon: "🛡️", kind: "armor" },
-  { slot: "element", label: "Element", icon: "🔮", kind: "element" },
+  { slot: "weapon", label: "Weapon", icon: "⚔︎", kind: "weapon" },
+  { slot: "armor", label: "Armor", icon: "⛨︎", kind: "armor" },
+  { slot: "element", label: "Element", icon: "✦", kind: "element" },
 ];
 
-export default function EquipPanel({ weapon, armor, element, onClear }: EquipPanelProps) {
+function TotalsRow({ items }: { items: Array<InventoryItem | null> }) {
+  const totals = items.reduce(
+    (acc, it) => {
+      if (it) {
+        acc.health += it.stats.health;
+        acc.attack += it.stats.attack;
+        acc.defense += it.stats.defense;
+        acc.luck += it.stats.luck;
+      }
+      return acc;
+    },
+    { health: 0, attack: 0, defense: 0, luck: 0 }
+  );
+  const cells: Array<[string, number]> = [
+    ["HP", totals.health],
+    ["ATK", totals.attack],
+    ["DEF", totals.defense],
+    ["LCK", totals.luck],
+  ];
+  return (
+    <div className="mt-3 border-t border-stone-600 pt-2">
+      <div className="mb-1 font-display text-[10px] tracking-wide text-secondary">Equipment totals</div>
+      <div className="grid grid-cols-4 gap-1 text-center">
+        {cells.map(([label, value]) => (
+          <div key={label} className="rounded-paper border border-ink bg-stone-900 py-1">
+            <div className="font-display text-[9px] tracking-wide text-secondary">{label}</div>
+            <div className="font-body text-sm tabular-nums text-primary">{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Player level + a bar showing progress toward the next level (like the enemy's
+// "Wraith (Lv 8)" label). Fills as enemies are defeated.
+function LevelMeter({
+  level,
+  winsIntoLevel,
+  winsNeeded,
+}: {
+  level: number;
+  winsIntoLevel: number;
+  winsNeeded: number;
+}) {
+  const pct = winsNeeded > 0 ? Math.max(0, Math.min(100, (winsIntoLevel / winsNeeded) * 100)) : 0;
+  return (
+    <div className="mt-3 border-t border-stone-600 pt-2">
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="font-display text-[12px] tracking-wide text-primary">Hero (Lv {level})</span>
+        <span className="font-body text-[10px] tabular-nums text-secondary">
+          {winsIntoLevel}/{winsNeeded}
+        </span>
+      </div>
+      <div className="h-3 w-full overflow-hidden border-2 border-ink bg-stone-950">
+        <div
+          className="h-full bg-brass transition-[width] duration-150"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="mt-1 font-body text-[10px] text-secondary">Defeat enemies to level up</div>
+    </div>
+  );
+}
+
+export default function EquipPanel({
+  weapon,
+  armor,
+  element,
+  onClear,
+  level,
+  winsIntoLevel,
+  winsNeeded,
+}: EquipPanelProps) {
   const items: Record<EquipSlot, InventoryItem | null> = { weapon, armor, element };
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
-      <h2 className="mb-2 text-sm font-semibold text-slate-200">Equipped</h2>
-      <div className="flex flex-wrap justify-center gap-3">
+    <div className="panel flex h-full flex-col p-3">
+      <h2 className="mb-2 font-display text-sm tracking-wide text-primary">Equipped</h2>
+
+      <div className="flex flex-col gap-2">
         {SLOTS.map(({ slot, label, icon, kind }) => {
           const item = items[slot];
           return (
-            <div key={slot} className="flex flex-col items-center gap-1">
-              <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
-              <DropZone target={slot} accept={(it) => it.kind === kind} className="w-14 rounded-lg">
+            <div key={slot} className="flex flex-col gap-0.5">
+              <span className="font-body text-[10px] uppercase tracking-wide text-secondary">
+                {label}
+              </span>
+              <DropZone target={slot} accept={(it) => it.kind === kind} className="w-full">
                 {item ? (
-                  <DraggableCard from={slot} item={item} size="tile" onClick={() => onClear(slot)} />
+                  <DraggableCard from={slot} item={item} size="compact" onClick={() => onClear(slot)} />
                 ) : (
-                  <div className="grid h-14 w-14 place-items-center rounded-lg border border-dashed border-slate-700 bg-slate-950/40 text-xl text-slate-600">
-                    {icon}
+                  <div className="slot-inset flex h-16 w-full items-center gap-2 px-3 text-stone-500">
+                    <span className="font-body text-xl leading-none">{icon}</span>
+                    <span className="font-body text-xs italic">Empty</span>
                   </div>
                 )}
               </DropZone>
@@ -41,6 +121,9 @@ export default function EquipPanel({ weapon, armor, element, onClear }: EquipPan
           );
         })}
       </div>
+
+      <TotalsRow items={[weapon, armor, element]} />
+      <LevelMeter level={level} winsIntoLevel={winsIntoLevel} winsNeeded={winsNeeded} />
     </div>
   );
 }

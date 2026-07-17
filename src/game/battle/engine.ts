@@ -35,6 +35,12 @@ const ROSTER: ReadonlyArray<{ name: string; glyph: string }> = [
 
 export const PLAYER_MAX_HP = 100;
 
+// Wins needed to advance from `level` to the next one. Grows slowly so higher
+// levels take a little longer, giving the level bar something to fill.
+export function winsForLevel(level: number): number {
+  return 3 + Math.floor((Math.max(1, level) - 1) / 3);
+}
+
 export function createEnemy(level: number): Enemy {
   const base = ROSTER[(level - 1) % ROSTER.length];
   const maxHp = 18 + level * 12;

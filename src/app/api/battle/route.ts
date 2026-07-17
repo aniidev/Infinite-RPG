@@ -12,10 +12,12 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   let playerId: unknown;
   let level: unknown;
+  let playerLevel: unknown;
   try {
     const body = await req.json();
     playerId = body?.playerId;
     level = body?.level;
+    playerLevel = body?.playerLevel;
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
@@ -53,11 +55,16 @@ export async function POST(req: Request) {
     }
   }
 
-  // Persist progression: the player has cleared this level, so next time they
-  // resume at the following one. Never moves backward.
-  const nextLevel = enemyLevel + 1;
+  // Persist progression. The client now owns the level (it advances only after
+  // enough wins), so persist the player's current level; fall back to the old
+  // per-kill behavior if the client didn't send one. Never moves backward.
+  const rawPlayerLevel = Math.floor(Number(playerLevel));
+  const persistLevel =
+    Number.isFinite(rawPlayerLevel) && rawPlayerLevel > 0
+      ? Math.min(99, rawPlayerLevel)
+      : enemyLevel + 1;
   const [progressed] = await sql`
-    update players set level = greatest(level, ${nextLevel})
+    update players set level = greatest(level, ${persistLevel})
     where id = ${playerId}
     returning level
   `;
@@ -75,7 +82,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     loot: Array.from(byId.values()),
-    level: progressed?.level ?? nextLevel,
+    level: progressed?.level ?? persistLevel,
     lost,
   });
 }

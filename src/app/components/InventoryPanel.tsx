@@ -6,9 +6,6 @@ import { MAX_INVENTORY_SLOTS, type InventoryItem } from "@/game/types";
 
 interface InventoryPanelProps {
   items: InventoryItem[];
-  // Units of each item currently in an equip/mix slot. The grid shows the
-  // REMAINING quantity (moved one, kept the rest); a fully-committed stack drops
-  // out of the grid until a unit is returned.
   committedCounts: Map<string, number>;
 }
 
@@ -29,20 +26,17 @@ export default function InventoryPanel({ items, committedCounts }: InventoryPane
       ) {
         continue;
       }
-      // Show the remaining count on the card, not the full owned quantity.
       out.push(remaining === it.quantity ? it : { ...it, quantity: remaining });
     }
     return out;
   }, [items, query, committedCounts]);
 
   return (
-    // The inventory is also a drop target: dropping an equipped/staged card here
-    // clears it back into the bag.
     <DropZone target="inventory" className="flex h-full min-h-0 flex-col">
-      <div className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
+      <div className="panel flex h-full min-h-0 flex-col p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-slate-200">Inventory</h2>
-          <span className="text-[11px] text-slate-400">
+          <h2 className="font-display text-sm tracking-wide text-primary">Inventory</h2>
+          <span className="font-body text-[11px] tabular-nums text-secondary">
             {items.length}/{MAX_INVENTORY_SLOTS} slots
           </span>
         </div>
@@ -51,20 +45,20 @@ export default function InventoryPanel({ items, committedCounts }: InventoryPane
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search items…"
-          className="mb-2 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-500 focus:border-slate-500 focus:outline-none"
+          className="mb-2 w-full rounded-paper border-2 border-ink bg-stone-950 px-2.5 py-1.5 font-body text-sm text-primary placeholder:text-muted focus:border-brass focus:outline-none"
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           {items.length === 0 ? (
-            <p className="px-1 py-6 text-center text-sm text-slate-500">
-              Empty — defeat enemies to loot items.
+            <p className="px-1 py-6 text-center font-body text-sm text-secondary">
+              Empty. Defeat enemies to loot items.
             </p>
           ) : filtered.length === 0 ? (
-            <p className="px-1 py-6 text-center text-sm text-slate-500">
+            <p className="px-1 py-6 text-center font-body text-sm text-secondary">
               {query ? `No items match “${query}”.` : "Everything is equipped or staged."}
             </p>
           ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
               {filtered.map((item) => (
                 <DraggableCard key={item.id} from="inventory" item={item} size="full" />
               ))}

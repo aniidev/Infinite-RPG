@@ -4,6 +4,49 @@ const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      colors: {
+        ink: "var(--ink)",
+        "ink-text": "var(--ink-text)",
+        stone: {
+          950: "var(--stone-950)",
+          900: "var(--stone-900)",
+          800: "var(--stone-800)",
+          700: "var(--stone-700)",
+          600: "var(--stone-600)",
+          500: "var(--stone-500)",
+        },
+        parchment: {
+          100: "var(--parchment-100)",
+          200: "var(--parchment-200)",
+          300: "var(--parchment-300)",
+          400: "var(--parchment-400)",
+        },
+        primary: "var(--text-primary)",
+        secondary: "var(--text-secondary)",
+        muted: "var(--text-muted)",
+        rust: "var(--rust)",
+        ember: "var(--ember)",
+        brass: "var(--brass)",
+        moss: "var(--moss)",
+        steel: "var(--steel)",
+        bone: "var(--bone)",
+      },
+      fontFamily: {
+        // No geometric sans anywhere — default to the old-style serif.
+        sans: ['"EB Garamond"', "Georgia", "serif"],
+        body: ['"EB Garamond"', "Georgia", "serif"],
+        display: ["Cinzel", "Georgia", "serif"],
+      },
+      boxShadow: {
+        // Hard offset ink shadows only — no blur, no spread, no color but ink.
+        ink: "3px 3px 0 0 var(--ink)",
+        "ink-lg": "5px 5px 0 0 var(--ink)",
+        "ink-sm": "1px 1px 0 0 var(--ink)",
+        "ink-inset": "inset 2px 2px 0 0 var(--ink)",
+      },
+      borderRadius: {
+        paper: "3px",
+      },
       keyframes: {
         pulseGlow: {
           "0%, 100%": { opacity: "1" },
@@ -58,18 +101,24 @@ const config: Config = {
           "60%": { transform: "scale(1.15) rotate(3deg)" },
           "100%": { opacity: "1", transform: "scale(1) rotate(0deg)" },
         },
+        // Snappy paper-handling wobble for the mixing indicator.
+        mixWobble: {
+          "0%, 100%": { transform: "rotate(-7deg)" },
+          "50%": { transform: "rotate(7deg)" },
+        },
       },
       animation: {
         pulseGlow: "pulseGlow 1.1s ease-in-out infinite",
         shake: "shake 0.3s ease",
         shakeHard: "shakeHard 0.4s ease",
-        strikeRight: "strikeRight 0.3s ease",
-        strikeLeft: "strikeLeft 0.3s ease",
-        block: "block 0.3s ease",
-        floatUp: "floatUp 0.75s ease-out forwards",
-        lootFall: "lootFall 1s ease-in forwards",
-        popIn: "popIn 0.35s ease-out",
-        badgePop: "badgePop 0.5s ease-out",
+        strikeRight: "strikeRight 0.28s ease-out",
+        strikeLeft: "strikeLeft 0.28s ease-out",
+        block: "block 0.28s ease-out",
+        floatUp: "floatUp 0.5s ease-out forwards",
+        lootFall: "lootFall 0.6s ease-in forwards",
+        popIn: "popIn 0.18s ease-out",
+        badgePop: "badgePop 0.24s ease-out",
+        mixWobble: "mixWobble 0.32s ease-in-out infinite",
       },
     },
   },

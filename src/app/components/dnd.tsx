@@ -7,8 +7,10 @@ import type { InventoryItem } from "@/game/types";
 
 // Where a card is being dragged FROM, and the drop TARGETs it can land on.
 export type EquipSlot = "weapon" | "armor" | "element";
-export type DragFrom = "inventory" | EquipSlot | "mixA" | "mixB";
-export type DropTarget = EquipSlot | "mixA" | "mixB" | "inventory";
+// "result" is a drag SOURCE only (the freshly crafted item awaiting claim); it
+// is never a drop target.
+export type DragFrom = "inventory" | EquipSlot | "mixA" | "mixB" | "result";
+export type DropTarget = EquipSlot | "mixA" | "mixB" | "inventory" | "trash";
 
 export interface DragData {
   item: InventoryItem;
@@ -84,15 +86,15 @@ export function DropZone({
   const cue = !activeItem
     ? ""
     : isOver && valid
-      ? "ring-2 ring-emerald-400 bg-emerald-500/10"
+      ? "outline outline-2 outline-moss outline-offset-2"
       : isOver && !valid
-        ? "ring-2 ring-rose-500 bg-rose-500/10 animate-shake"
+        ? "outline outline-2 outline-rust outline-offset-2 animate-shake"
         : valid
-          ? "ring-1 ring-emerald-500/40"
+          ? "outline outline-1 outline-moss outline-offset-2"
           : "";
 
   return (
-    <div ref={setNodeRef} className={`rounded-xl transition ${cue} ${className}`}>
+    <div ref={setNodeRef} className={`rounded-paper transition ${cue} ${className}`}>
       {children}
     </div>
   );

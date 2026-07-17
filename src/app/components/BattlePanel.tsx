@@ -4,7 +4,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import {
   createEnemy,
   resolveHit,
-  PLAYER_MAX_HP,
+  winsForLevel,
   type Enemy,
   type HitResult,
 } from "@/game/battle/engine";
@@ -14,6 +14,15 @@ export interface PlayerStats {
   attack: number;
   defense: number;
   luck: number;
+  maxHp: number; // 100 base + summed health of everything equipped
+}
+
+// Level-up progress the panel reports upward so the equipped column can draw the
+// player's level and its progress bar.
+export interface LevelProgress {
+  level: number;
+  winsIntoLevel: number;
+  winsNeeded: number;
 }
 
 interface BattlePanelProps {
@@ -21,7 +30,7 @@ interface BattlePanelProps {
   playerStats: PlayerStats;
   initialLevel: number;
   onLoot: (loot: InventoryItem[]) => void;
-  onProgress: (level: number) => void;
+  onProgress: (progress: LevelProgress) => void;
 }
 
 type Side = "player" | "enemy";
@@ -37,6 +46,7 @@ interface Fx {
 
 interface BattleState {
   level: number;
+  winsIntoLevel: number;
   playerHp: number;
   enemy: Enemy;
   whose: Side;
@@ -52,11 +62,12 @@ const TURN_DELAY = 850;
 // place here, removable in one line.
 const GLYPH_FILTER = { filter: "saturate(0.65) contrast(1.05) sepia(0.15)" } as const;
 
-function makeInitialState(level: number): BattleState {
+function makeInitialState(level: number, maxHp: number): BattleState {
   const enemy = createEnemy(level);
   return {
     level,
-    playerHp: PLAYER_MAX_HP,
+    winsIntoLevel: 0,
+    playerHp: maxHp,
     enemy,
     whose: "player",
     status: "idle",
@@ -108,7 +119,7 @@ function CombatantPanel({
   name: string;
   hp: number;
   maxHp: number;
-  stats: PlayerStats;
+  stats: { attack: number; defense: number; luck: number };
   active: boolean;
   fx: Fx | null;
 }) {
@@ -166,7 +177,7 @@ export default function BattlePanel({
   onLoot,
   onProgress,
 }: BattlePanelProps) {
-  const stRef = useRef<BattleState>(makeInitialState(initialLevel));
+  const stRef = useRef<BattleState>(makeInitialState(initialLevel, playerStats.maxHp));
   const [, forceRender] = useReducer((c: number) => c + 1, 0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fxCounter = useRef(0);
@@ -191,15 +202,33 @@ export default function BattlePanel({
   const onVictory = useCallback(async () => {
     const st = stRef.current;
     const defeated = st.enemy;
+    const defeatedLevel = defeated.level;
     pushLog(`You defeated the ${defeated.name}!`);
     st.status = "idle";
+
+    // Count the win; level up once enough wins are banked for this level.
+    st.winsIntoLevel += 1;
+    if (st.winsIntoLevel >= winsForLevel(st.level)) {
+      st.level += 1;
+      st.winsIntoLevel = 0;
+      pushLog(`You reached level ${st.level}!`);
+    }
+    propsRef.current.onProgress({
+      level: st.level,
+      winsIntoLevel: st.winsIntoLevel,
+      winsNeeded: winsForLevel(st.level),
+    });
     paint();
 
     try {
       const res = await fetch("/api/battle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId: propsRef.current.playerId, level: defeated.level }),
+        body: JSON.stringify({
+          playerId: propsRef.current.playerId,
+          level: defeatedLevel, // loot scales with the enemy just defeated
+          playerLevel: st.level, // persist the player's (possibly new) level
+        }),
       });
       const data = await res.json();
       if (res.ok && Array.isArray(data.loot) && data.loot.length > 0) {
@@ -209,11 +238,9 @@ export default function BattlePanel({
       pushLog("The loot slipped away (network error).");
     }
 
-    const nextLevel = defeated.level + 1;
-    propsRef.current.onProgress(nextLevel);
-    st.level = nextLevel;
-    st.enemy = createEnemy(nextLevel);
-    st.playerHp = PLAYER_MAX_HP;
+    // Next enemy tracks the player's current level (only bumped on level-up).
+    st.enemy = createEnemy(st.level);
+    st.playerHp = propsRef.current.playerStats.maxHp;
     st.whose = "player";
     st.fx = null;
     paint();
@@ -222,7 +249,7 @@ export default function BattlePanel({
   const onDefeat = useCallback(() => {
     const st = stRef.current;
     st.status = "idle";
-    st.playerHp = PLAYER_MAX_HP;
+    st.playerHp = propsRef.current.playerStats.maxHp;
     st.enemy = createEnemy(st.level);
     st.whose = "player";
     st.fx = null;
@@ -285,6 +312,7 @@ export default function BattlePanel({
     if (st.status !== "idle") return;
     st.status = "fighting";
     st.whose = "player";
+    st.playerHp = propsRef.current.playerStats.maxHp; // start full with current gear
     st.fx = null;
     paint();
     clearTimer();
@@ -292,6 +320,9 @@ export default function BattlePanel({
   }, [clearTimer, paint]);
 
   const st = stRef.current;
+  const playerMaxHp = playerStats.maxHp;
+  // While idle the player stands at full health (reflects the current gear's HP).
+  const playerHpShown = st.status === "idle" ? playerMaxHp : st.playerHp;
 
   return (
     <div className="panel flex flex-col px-4 py-2.5">
@@ -304,8 +335,8 @@ export default function BattlePanel({
           side="player"
           glyph="🧙"
           name="You"
-          hp={st.playerHp}
-          maxHp={PLAYER_MAX_HP}
+          hp={playerHpShown}
+          maxHp={playerMaxHp}
           stats={playerStats}
           active={st.status === "fighting" && st.whose === "player"}
           fx={st.fx}

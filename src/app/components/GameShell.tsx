@@ -10,7 +10,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import BattlePanel, { type PlayerStats } from "./BattlePanel";
+import BattlePanel, { type PlayerStats, type LevelProgress } from "./BattlePanel";
 import EquipPanel from "./EquipPanel";
 import InventoryPanel from "./InventoryPanel";
 import MixingPanel, { type MixResult } from "./MixingPanel";
@@ -22,6 +22,7 @@ import {
   type DropData,
   type EquipSlot,
 } from "./dnd";
+import { PLAYER_MAX_HP, winsForLevel } from "@/game/battle/engine";
 import type { InventoryItem } from "@/game/types";
 
 const PLAYER_KEY = "infinite-rpg-player-id";
@@ -43,6 +44,7 @@ interface LootBurst {
 export default function GameShell() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [playerLevel, setPlayerLevel] = useState(1);
+  const [winsIntoLevel, setWinsIntoLevel] = useState(0);
   const [items, setItems] = useState<InventoryItem[]>([]);
 
   const [equip, setEquip] = useState<Equip>({ weapon: null, armor: null, element: null });
@@ -142,15 +144,23 @@ export default function GameShell() {
     let attack = 8;
     let defense = 1;
     let luck = 0;
+    let health = 0;
     for (const it of [equipped.weapon, equipped.armor, equipped.element]) {
       if (it) {
         attack += it.stats.attack;
         defense += it.stats.defense;
         luck += it.stats.luck;
+        health += it.stats.health;
       }
     }
-    return { attack, defense, luck };
+    // Equipment health raises the player's max HP above the 100 base.
+    return { attack, defense, luck, maxHp: PLAYER_MAX_HP + health };
   }, [equipped.weapon, equipped.armor, equipped.element]);
+
+  const handleProgress = useCallback((p: LevelProgress) => {
+    setPlayerLevel(p.level);
+    setWinsIntoLevel(p.winsIntoLevel);
+  }, []);
 
   // ---- drag routing -------------------------------------------------------
   const clearFrom = useCallback((from: DragFrom) => {
@@ -337,6 +347,7 @@ export default function GameShell() {
       }
       const data = await res.json();
       setPlayerLevel(data.player?.level ?? 1);
+      setWinsIntoLevel(0);
       setEquip({ weapon: null, armor: null, element: null });
       setMix({ a: null, b: null });
       setResult({ status: "empty" });
@@ -384,7 +395,7 @@ export default function GameShell() {
                 playerStats={playerStats}
                 initialLevel={playerLevel}
                 onLoot={handleLoot}
-                onProgress={setPlayerLevel}
+                onProgress={handleProgress}
               />
               {/* loot falling toward the inventory below */}
               {lootBurst && (
@@ -413,6 +424,9 @@ export default function GameShell() {
                   armor={equipped.armor}
                   element={equipped.element}
                   onClear={clearEquip}
+                  level={playerLevel}
+                  winsIntoLevel={winsIntoLevel}
+                  winsNeeded={winsForLevel(playerLevel)}
                 />
               </div>
 

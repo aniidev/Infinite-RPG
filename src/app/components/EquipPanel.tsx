@@ -8,6 +8,9 @@ interface EquipPanelProps {
   armor: InventoryItem | null;
   element: InventoryItem | null;
   onClear: (slot: EquipSlot) => void;
+  level: number;
+  winsIntoLevel: number;
+  winsNeeded: number;
 }
 
 const SLOTS: ReadonlyArray<{ slot: EquipSlot; label: string; icon: string; kind: string }> = [
@@ -36,7 +39,7 @@ function TotalsRow({ items }: { items: Array<InventoryItem | null> }) {
     ["LCK", totals.luck],
   ];
   return (
-    <div className="mt-auto border-t border-stone-600 pt-2">
+    <div className="mt-3 border-t border-stone-600 pt-2">
       <div className="mb-1 font-display text-[10px] tracking-wide text-secondary">Equipment totals</div>
       <div className="grid grid-cols-4 gap-1 text-center">
         {cells.map(([label, value]) => (
@@ -50,7 +53,46 @@ function TotalsRow({ items }: { items: Array<InventoryItem | null> }) {
   );
 }
 
-export default function EquipPanel({ weapon, armor, element, onClear }: EquipPanelProps) {
+// Player level + a bar showing progress toward the next level (like the enemy's
+// "Wraith (Lv 8)" label). Fills as enemies are defeated.
+function LevelMeter({
+  level,
+  winsIntoLevel,
+  winsNeeded,
+}: {
+  level: number;
+  winsIntoLevel: number;
+  winsNeeded: number;
+}) {
+  const pct = winsNeeded > 0 ? Math.max(0, Math.min(100, (winsIntoLevel / winsNeeded) * 100)) : 0;
+  return (
+    <div className="mt-3 border-t border-stone-600 pt-2">
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="font-display text-[12px] tracking-wide text-primary">Hero (Lv {level})</span>
+        <span className="font-body text-[10px] tabular-nums text-secondary">
+          {winsIntoLevel}/{winsNeeded}
+        </span>
+      </div>
+      <div className="h-3 w-full overflow-hidden border-2 border-ink bg-stone-950">
+        <div
+          className="h-full bg-brass transition-[width] duration-150"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="mt-1 font-body text-[10px] text-secondary">Defeat enemies to level up</div>
+    </div>
+  );
+}
+
+export default function EquipPanel({
+  weapon,
+  armor,
+  element,
+  onClear,
+  level,
+  winsIntoLevel,
+  winsNeeded,
+}: EquipPanelProps) {
   const items: Record<EquipSlot, InventoryItem | null> = { weapon, armor, element };
 
   return (
@@ -81,6 +123,7 @@ export default function EquipPanel({ weapon, armor, element, onClear }: EquipPan
       </div>
 
       <TotalsRow items={[weapon, armor, element]} />
+      <LevelMeter level={level} winsIntoLevel={winsIntoLevel} winsNeeded={winsNeeded} />
     </div>
   );
 }

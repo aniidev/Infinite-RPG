@@ -27,6 +27,9 @@ const baseItems = [
   { name: "Fire Shard",    glyph: "🔥", element: "fire",  kind: "element", stats: { health: 0, attack: 4, defense: 0, luck: 2 }, minLevel: 1, tier: 1 },
   { name: "Ice Shard",     glyph: "❄️", element: "ice",   kind: "element", stats: { health: 2, attack: 3, defense: 2, luck: 1 }, minLevel: 1, tier: 1 },
   { name: "Grass",         glyph: "🌿", element: "grass", kind: "misc",    stats: { health: 3, attack: 1, defense: 2, luck: 2 }, minLevel: 1, tier: 1 },
+  { name: "Clover",        glyph: "🍀", element: "nature", kind: "misc",   stats: { health: 2, attack: 0, defense: 1, luck: 5 }, minLevel: 1, tier: 1, weight: 22 },
+  { name: "Light Energy",  glyph: "🌟", bg: "☀️", element: "light", kind: "element", stats: { health: 3, attack: 6, defense: 2, luck: 6 }, minLevel: 11, tier: 3, weight: 3 },
+  { name: "Dark Energy",   glyph: "🌑", bg: "🌌", element: "dark",  kind: "element", stats: { health: 4, attack: 8, defense: 4, luck: 2 }, minLevel: 11, tier: 3, weight: 3 },
   { name: "Axe",           glyph: "🪓", element: "none",  kind: "weapon",  stats: { health: 0, attack: 9, defense: 1, luck: 0 }, minLevel: 3, tier: 2 },
   { name: "Hammer",        glyph: "🔨", element: "none",  kind: "weapon",  stats: { health: 2, attack: 11, defense: 2, luck: 0 }, minLevel: 5, tier: 3 },
   // New drops — elemental (glyph differs from element, so they show the layered aura).
@@ -60,9 +63,9 @@ const recipes = [
 async function insertItem(it, depth) {
   const nameKey = normalize(it.name);
   const [row] = await sql`
-    insert into items (name, name_key, base_key, glyph, bg_glyph, element, kind, stats, power, depth, min_level, tier)
+    insert into items (name, name_key, base_key, glyph, bg_glyph, element, kind, stats, power, depth, min_level, tier, weight)
     values (${it.name}, ${nameKey}, ${nameKey}, ${it.glyph}, ${it.bg ?? null}, ${it.element}, ${it.kind}::item_kind,
-            ${sql.json(it.stats)}, ${powerOf(it.stats)}, ${depth}, ${it.minLevel ?? 1}, ${it.tier ?? 1})
+            ${sql.json(it.stats)}, ${powerOf(it.stats)}, ${depth}, ${it.minLevel ?? 1}, ${it.tier ?? 1}, ${it.weight ?? 10})
     returning id
   `;
   return row.id;

@@ -49,6 +49,29 @@
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
   }
+
+  /* Custom scrollbar: just a light-brown thumb, no track or box background. */
+  * {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: var(--parchment-400) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--parchment-400);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--bone);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
 @layer components {

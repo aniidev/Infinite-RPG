@@ -6,7 +6,7 @@ import ItemCard, { type ItemCardSize } from "./ItemCard";
 import type { InventoryItem } from "@/game/types";
 
 // Where a card is being dragged FROM, and the drop TARGETs it can land on.
-export type EquipSlot = "weapon" | "armor" | "element";
+export type EquipSlot = "weapon" | "armor";
 // "result" is a drag SOURCE only (the freshly crafted item awaiting claim); it
 // is never a drop target.
 export type DragFrom = "inventory" | EquipSlot | "mixA" | "mixB" | "result";

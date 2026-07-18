@@ -6,7 +6,6 @@ import type { InventoryItem } from "@/game/types";
 interface EquipPanelProps {
   weapon: InventoryItem | null;
   armor: InventoryItem | null;
-  element: InventoryItem | null;
   onClear: (slot: EquipSlot) => void;
   level: number;
   winsIntoLevel: number;
@@ -16,7 +15,6 @@ interface EquipPanelProps {
 const SLOTS: ReadonlyArray<{ slot: EquipSlot; label: string; icon: string; kind: string }> = [
   { slot: "weapon", label: "Weapon", icon: "⚔︎", kind: "weapon" },
   { slot: "armor", label: "Armor", icon: "⛨︎", kind: "armor" },
-  { slot: "element", label: "Element", icon: "✦", kind: "element" },
 ];
 
 function TotalsRow({ items }: { items: Array<InventoryItem | null> }) {
@@ -79,7 +77,6 @@ function LevelMeter({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="mt-1 font-body text-[10px] text-secondary">Defeat enemies to level up</div>
     </div>
   );
 }
@@ -87,13 +84,12 @@ function LevelMeter({
 export default function EquipPanel({
   weapon,
   armor,
-  element,
   onClear,
   level,
   winsIntoLevel,
   winsNeeded,
 }: EquipPanelProps) {
-  const items: Record<EquipSlot, InventoryItem | null> = { weapon, armor, element };
+  const items: Record<EquipSlot, InventoryItem | null> = { weapon, armor };
 
   return (
     <div className="panel flex h-full flex-col p-3">
@@ -122,7 +118,7 @@ export default function EquipPanel({
         })}
       </div>
 
-      <TotalsRow items={[weapon, armor, element]} />
+      <TotalsRow items={[weapon, armor]} />
       <LevelMeter level={level} winsIntoLevel={winsIntoLevel} winsNeeded={winsNeeded} />
     </div>
   );

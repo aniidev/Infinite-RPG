@@ -30,7 +30,6 @@ const PLAYER_KEY = "infinite-rpg-player-id";
 interface Equip {
   weapon: string | null;
   armor: string | null;
-  element: string | null;
 }
 interface Mix {
   a: string | null;
@@ -47,7 +46,7 @@ export default function GameShell() {
   const [winsIntoLevel, setWinsIntoLevel] = useState(0);
   const [items, setItems] = useState<InventoryItem[]>([]);
 
-  const [equip, setEquip] = useState<Equip>({ weapon: null, armor: null, element: null });
+  const [equip, setEquip] = useState<Equip>({ weapon: null, armor: null });
   const [mix, setMix] = useState<Mix>({ a: null, b: null });
   const [result, setResult] = useState<MixResult>({ status: "empty" });
 
@@ -117,7 +116,6 @@ export default function GameShell() {
   const equipped = {
     weapon: at(equip.weapon),
     armor: at(equip.armor),
-    element: at(equip.element),
   };
   const stagedA = at(mix.a);
   const stagedB = at(mix.b);
@@ -130,13 +128,13 @@ export default function GameShell() {
   // inventory from the craft, but must appear exactly once (here, in the slot).
   const committedCounts = useMemo(() => {
     const m = new Map<string, number>();
-    const ids = [equip.weapon, equip.armor, equip.element, mix.a, mix.b];
+    const ids = [equip.weapon, equip.armor, mix.a, mix.b];
     if (result.status === "done") ids.push(result.item.id);
     for (const id of ids) {
       if (id) m.set(id, (m.get(id) ?? 0) + 1);
     }
     return m;
-  }, [equip.weapon, equip.armor, equip.element, mix.a, mix.b, result]);
+  }, [equip.weapon, equip.armor, mix.a, mix.b, result]);
 
   // Player combat stats = base + everything currently equipped (feeds the engine
   // just like the single-weapon stats did before).
@@ -145,7 +143,7 @@ export default function GameShell() {
     let defense = 1;
     let luck = 0;
     let health = 0;
-    for (const it of [equipped.weapon, equipped.armor, equipped.element]) {
+    for (const it of [equipped.weapon, equipped.armor]) {
       if (it) {
         attack += it.stats.attack;
         defense += it.stats.defense;
@@ -155,7 +153,7 @@ export default function GameShell() {
     }
     // Equipment health raises the player's max HP above the 100 base.
     return { attack, defense, luck, maxHp: PLAYER_MAX_HP + health };
-  }, [equipped.weapon, equipped.armor, equipped.element]);
+  }, [equipped.weapon, equipped.armor]);
 
   const handleProgress = useCallback((p: LevelProgress) => {
     setPlayerLevel(p.level);
@@ -164,7 +162,7 @@ export default function GameShell() {
 
   // ---- drag routing -------------------------------------------------------
   const clearFrom = useCallback((from: DragFrom) => {
-    if (from === "weapon" || from === "armor" || from === "element") {
+    if (from === "weapon" || from === "armor") {
       setEquip((p) => ({ ...p, [from]: null }));
     } else if (from === "mixA") {
       setMix((p) => ({ ...p, a: null }));
@@ -225,7 +223,7 @@ export default function GameShell() {
     // moves OUT of the slot (never a drop target), and claiming empties the slot.
     if (from === "result") {
       if (result.status !== "done") return;
-      if (target === "weapon" || target === "armor" || target === "element") {
+      if (target === "weapon" || target === "armor") {
         if (item.kind !== target) {
           showToast(`A ${item.kind} can't go in the ${target} slot.`);
           return;
@@ -245,14 +243,14 @@ export default function GameShell() {
       return;
     }
 
-    if (target === "weapon" || target === "armor" || target === "element") {
+    if (target === "weapon" || target === "armor") {
       if (item.kind !== target) {
         showToast(`A ${item.kind} can't go in the ${target} slot.`);
         return;
       }
       setEquip((prev) => {
         const next = { ...prev, [target]: item.id };
-        if ((from === "weapon" || from === "armor" || from === "element") && from !== target) {
+        if ((from === "weapon" || from === "armor") && from !== target) {
           next[from] = null;
         }
         return next;
@@ -270,7 +268,7 @@ export default function GameShell() {
         if (from === "mixB" && dst !== "b") next.b = null;
         return next;
       });
-      if (from === "weapon" || from === "armor" || from === "element") clearFrom(from);
+      if (from === "weapon" || from === "armor") clearFrom(from);
       return;
     }
   }
@@ -348,7 +346,7 @@ export default function GameShell() {
       const data = await res.json();
       setPlayerLevel(data.player?.level ?? 1);
       setWinsIntoLevel(0);
-      setEquip({ weapon: null, armor: null, element: null });
+      setEquip({ weapon: null, armor: null });
       setMix({ a: null, b: null });
       setResult({ status: "empty" });
       await refreshInventory(playerId);
@@ -422,7 +420,6 @@ export default function GameShell() {
                 <EquipPanel
                   weapon={equipped.weapon}
                   armor={equipped.armor}
-                  element={equipped.element}
                   onClear={clearEquip}
                   level={playerLevel}
                   winsIntoLevel={winsIntoLevel}

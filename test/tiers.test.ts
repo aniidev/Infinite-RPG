@@ -11,19 +11,29 @@ import {
 import { power } from "../src/lib/variants";
 import type { Stats, StatShape } from "../src/game/types";
 
-test("ceilingFor maps tiers and clamps out-of-range", () => {
+test("ceilingFor follows 5*(t+1)^2 and is unbounded above", () => {
   assert.equal(ceilingFor(1), 20);
   assert.equal(ceilingFor(2), 45);
   assert.equal(ceilingFor(3), 80);
   assert.equal(ceilingFor(5), 180);
-  assert.equal(ceilingFor(99), 180); // clamped to the top tier
-  assert.equal(ceilingFor(0), 20); // clamped to tier 1
+  assert.equal(ceilingFor(6), 245); // keeps climbing past the old tier-5 cap
+  assert.equal(ceilingFor(7), 320);
+  assert.equal(ceilingFor(0), 20); // clamped to the tier-1 minimum
 });
 
-test("combinePower: outTier = max(parent tiers), never raises tier", () => {
-  assert.equal(combinePower(1, 10, 1, 10).outTier, 1);
+test("combinePower: same-tier ascends when combined power meets the next ceiling", () => {
+  // below threshold or different tiers -> outTier = max, no ascend
+  assert.equal(combinePower(1, 10, 1, 10).outTier, 1); // combined 20 < 45
   assert.equal(combinePower(2, 10, 3, 8).outTier, 3);
   assert.equal(combinePower(3, 10, 1, 8).outTier, 3);
+  assert.equal(combinePower(3, 30, 3, 30).outTier, 3); // combined 60 < 125
+  // two tier-3s summing to >= ceilingFor(4)=125 ascend to tier 4, but land only
+  // PART of the way in (offset toward the new ceiling), not at the full 125.
+  const up = combinePower(3, 60, 3, 65);
+  assert.equal(up.outTier, 4);
+  assert.equal(up.target, 86); // 65 + (125-65)*0.35
+  // two maxed tier-3s (80+80) ascend and land ~96, well under the 125 ceiling
+  assert.equal(combinePower(3, 80, 3, 80).target, 96); // 80 + (125-80)*0.35
 });
 
 test("combinePower: pulls RATE toward the ceiling (diminishing returns)", () => {
@@ -39,14 +49,14 @@ test("combinePower: pulls RATE toward the ceiling (diminishing returns)", () => 
   assert.ok(second < first, "each combine should gain less than the previous");
 });
 
-test("combinePower: target never exceeds the tier ceiling", () => {
-  // base already above the ceiling -> clamp to ceiling exactly
-  assert.equal(combinePower(1, 100, 1, 5).target, 20);
-  // sweep: no target ever crosses its ceiling
-  for (let tier = 1; tier <= 5; tier++) {
-    const ceil = ceilingFor(tier);
-    for (let p = 0; p <= ceil + 30; p += 7) {
-      assert.ok(combinePower(tier, p, tier, p).target <= ceil);
+test("combinePower: target never exceeds the OUTPUT tier's ceiling", () => {
+  // sweep: whether it ascends or not, target stays within its result tier, and
+  // the tier only ever goes up or stays the same.
+  for (let tier = 1; tier <= 6; tier++) {
+    for (let p = 0; p <= ceilingFor(tier) + 60; p += 7) {
+      const r = combinePower(tier, p, tier, p);
+      assert.ok(r.target <= ceilingFor(r.outTier));
+      assert.ok(r.outTier >= tier);
     }
   }
 });

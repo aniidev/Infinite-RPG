@@ -69,9 +69,18 @@ interface ItemCardProps {
 }
 
 // Brass pips along the top edge encode tier (no bare number). Tier 1 shows none.
+// Tiers are unbounded, so past 5 (where a row of pips stops being readable) we
+// switch to a compact brass "T6" badge.
 function TierPips({ tier }: { tier: number }) {
-  const n = Math.max(1, Math.min(5, tier));
+  const n = Math.max(1, Math.floor(tier));
   if (n < 2) return null;
+  if (n > 5) {
+    return (
+      <span className="pointer-events-none absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/2 rounded-paper border border-ink bg-brass px-1 font-display text-[9px] leading-tight text-ink">
+        T{n}
+      </span>
+    );
+  }
   return (
     <span className="pointer-events-none absolute left-1/2 top-0 z-10 flex -translate-x-1/2 -translate-y-1/2 gap-0.5">
       {Array.from({ length: n }).map((_, i) => (

@@ -3,19 +3,16 @@ import type { Stats, StatShape } from "./types";
 // ---------------------------------------------------------------------------
 // Tier ceilings — the balancing core.
 //
-// Each tier has a maximum total power. Superlinear so higher tiers feel
-// meaningfully stronger. Tune freely; keep monotonic increasing in tier.
-// Index = tier: tier 1 -> 20, tier 2 -> 45, ...
-//
-// TODO(ascend): a future "ascend" action could spend a resource to bump a
-// single item up one tier — a deliberate money sink. Left as a clean seam; the
-// only thing it would change is an item's `tier` (and thus its ceiling).
+// Each tier has a maximum total power. The ceiling follows 5*(tier+1)^2, which
+// reproduces the original hand-tuned table (20, 45, 80, 125, 180) exactly AND
+// keeps going forever, so tiers are unbounded: tier 6 -> 245, tier 7 -> 320, ...
+// TIER_CEILINGS below is kept as the low-tier reference (and for tests).
 // ---------------------------------------------------------------------------
 export const TIER_CEILINGS = [0, 20, 45, 80, 125, 180];
 
 export function ceilingFor(tier: number): number {
   const t = Math.max(1, Math.floor(tier));
-  return TIER_CEILINGS[Math.min(t, TIER_CEILINGS.length - 1)];
+  return 5 * (t + 1) * (t + 1);
 }
 
 // Fraction of the remaining gap to the ceiling closed per combine.
@@ -29,9 +26,16 @@ export interface CombineResult {
 
 /**
  * The combine formula. Power is derived here, never from the LLM.
- * - outTier = max(parent tiers): combining never raises tier.
- * - target pulls `RATE` of the way from the stronger parent toward the tier
- *   ceiling, clamped so it can never cross the ceiling (diminishing returns).
+ *
+ * ASCEND: combining two items OF THE SAME TIER raises the result one tier when
+ * their combined power meets the next tier's ceiling (e.g. two tier-3s whose
+ * powers sum to >= 125 become a tier-4). This is the only way to climb tiers by
+ * crafting, and it is unbounded.
+ *
+ * In BOTH cases the target pulls `RATE` of the way from the stronger parent
+ * toward the result tier's ceiling (diminishing returns), clamped under it. So
+ * an ascend lands PART of the way into the new tier (two tier-3s at 80 -> ~96,
+ * not the full 125), leaving room to grow before the next ascend.
  */
 export function combinePower(
   aTier: number,
@@ -39,7 +43,10 @@ export function combinePower(
   bTier: number,
   bPower: number
 ): CombineResult {
-  const outTier = Math.max(aTier, bTier);
+  const combined = aPower + bPower;
+  const ascend = aTier === bTier && combined >= ceilingFor(aTier + 1);
+
+  const outTier = ascend ? aTier + 1 : Math.max(aTier, bTier);
   const ceiling = ceilingFor(outTier);
   const base = Math.max(aPower, bPower);
   const target = Math.min(ceiling, base + (ceiling - base) * RATE);
